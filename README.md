@@ -1,10 +1,25 @@
 # Manifold — a macOS screensaver
 
-A minimal digital clock floating over a living **pointillist 3D terrain**, ported
-faithfully from the hero animation on [ingtian.github.io](https://ingtian.github.io).
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Swift](https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white)
+![Platform](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)
+![Universal](https://img.shields.io/badge/universal-arm64%20%C2%B7%20x86__64-informational)
+
+> *「聖人含道映物，賢者澄懷味象。」*
+> *The sage embodies the Way and mirrors things; the wise clarify the mind and savor forms.*
+> — 宗炳《畫山水序》, Zong Bing, *Preface on Landscape Painting* (c. 400 CE)
+
+A minimal digital clock floating over a living **pointillist 3D terrain** — a
+mountain rendered as breathing points of light. Ported faithfully from the hero
+animation on [ingtian.github.io](https://ingtian.github.io).
 
 *Manifold* — the terrain is literally a 2-manifold surface; the name also nods to
 manifold optimization and to many-folded mountain ranges (山水).
+
+<p align="center">
+  <img src="docs/demo-dark.gif"  width="49%" alt="Manifold — dark theme">
+  <img src="docs/demo-light.gif" width="49%" alt="Manifold — light theme">
+</p>
 
 The terrain is a Gaussian-bump elevation field sampled on a 33×33 grid, projected
 through a fixed yaw+tilt rotation and drawn as ~1000 elevation-colored dots. The
@@ -24,13 +39,13 @@ Because you build it **locally**, macOS doesn't quarantine it — there's no
 **One command** (clones, builds a universal binary, installs):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ingtian/manifold-screensaver/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/IngTian/manifold-screensaver/main/scripts/install.sh | bash
 ```
 
 **Or from a clone:**
 
 ```sh
-git clone https://github.com/ingtian/manifold-screensaver.git
+git clone https://github.com/IngTian/manifold-screensaver.git
 cd manifold-screensaver
 scripts/install.sh        # build + install to ~/Library/Screen Savers
 ```
