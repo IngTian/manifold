@@ -10,13 +10,13 @@
 #   scripts/install.sh
 #
 # Or straight from the internet (clones to a temp dir, builds, installs):
-#   curl -fsSL https://raw.githubusercontent.com/ingtian/manifold-screensaver/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/IngTian/manifold-screensaver/main/scripts/install.sh | bash
 #
 # Requirements: macOS 14+ and the Xcode Command Line Tools (`xcode-select
 # --install`). No full Xcode required.
 set -euo pipefail
 
-REPO_URL="https://github.com/ingtian/manifold-screensaver.git"  # update to your repo
+REPO_URL="https://github.com/IngTian/manifold-screensaver.git"  # update to your repo
 NAME="Manifold"
 
 log()  { printf '\033[1;36m==>\033[0m %s\n' "$1"; }
