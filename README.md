@@ -166,6 +166,70 @@ Settings entry, because it's an app, not a `.saver`:
 > an ad-hoc build the app still runs; enable it manually in **System Settings →
 > General → Login Items**.
 
+## The math
+
+The scene is a small amount of closed-form math, ported verbatim from
+[`terrain.js`](https://ingtian.github.io) into
+[`TerrainRenderer.swift`](Sources/TerrainRenderer.swift). Here's the whole thing.
+
+**Elevation field.** The terrain is a sum of $M = 5$ Gaussian bumps over the
+plane $(x, y)$, scaled by $U = 1.7$:
+
+$$
+h(x, y) \;=\; U \sum_{k=1}^{M} a_k \,
+\exp\!\left( -\frac{(x - c_{k,x})^2 + (y - c_{k,y})^2}{2\,\sigma_k^2} \right)
+$$
+
+Each bump $k$ has amplitude $a_k$ (signed — negative bumps carve valleys), center
+$(c_{k,x}, c_{k,y})$, and spread $\sigma_k$. The field is sampled on a square grid
+$x, y \in [-N, N]$ with step $V$ ($N = 2.6,\ V = 0.16$), giving
+$\left(\lfloor 2N/V \rfloor + 1\right)^2 = 33 \times 33 = 1089$ points.
+
+**Gradient.** Walkers flow downhill along $-\nabla h$, which has a closed form
+(each bump contributes its own Gaussian times a linear factor):
+
+$$
+\frac{\partial h}{\partial x} = -U \sum_{k=1}^{M}
+a_k \, \frac{x - c_{k,x}}{\sigma_k^2}\,
+\exp\!\left( -\frac{(x - c_{k,x})^2 + (y - c_{k,y})^2}{2\,\sigma_k^2} \right)
+$$
+
+and symmetrically for $\partial h / \partial y$.
+
+**Breathing.** Each frame the elevation is perturbed by a slow travelling wave in
+time $t$ (seconds), so the surface gently swells and settles:
+
+$$
+z(x, y, t) \;=\; h(x, y) \;+\; A \, \sin\!\big( \omega t + 0.7\,x + 0.6\,y \big),
+\qquad A = 0.04,\ \ \omega = 0.4
+$$
+
+**Projection.** Each point $(x, y, z)$ is rotated by a fixed yaw $\theta = 0.18\pi$
+about the vertical axis, then tilted by $\phi = 0.92$ rad, and orthographically
+projected to the screen:
+
+$$
+\begin{aligned}
+u &= x\cos\theta - y\sin\theta, &\quad
+d &= x\sin\theta + y\cos\theta, \\
+p &= d\cos\phi - z\sin\phi, &\quad
+\text{depth} &= d\sin\phi + z\cos\phi.
+\end{aligned}
+$$
+
+With a scale factor $f = 0.34 \cdot \max\!\big(\min(W, H),\ 0.46\,W\big)$ (the
+$\max$ is the ultra-wide fill — a uniform zoom, never a stretch), the on-screen
+position is $\big(\tfrac{W}{2} + u f,\ 0.46\,H - p f\big)$. Points are painted
+back-to-front by `depth`, and colored by a normalized elevation
+$\ell = \operatorname{clamp}\big((z + J)/2J,\ 0, 1\big)$ (with $J = 1.55$) that
+drives both the dot's color ramp and its radius/opacity.
+
+**Walkers.** The glowing particles are literally gradient descent: from a fixed
+start $(x_0, y_0)$, iterate $\mathbf{p}_{i+1} = \mathbf{p}_i - \eta\,\nabla h(\mathbf{p}_i)$
+with step $\eta = 0.16$ until $\lVert \nabla h \rVert < 0.01$ (a local minimum), then
+resample the path to 10 points and animate it tracing downhill. It's the same
+descent a first-order optimizer walks — the "manifold" the name nods to.
+
 ## Display adaptability
 
 Everything in the scene is sized as a **fraction of the view** — no hardcoded

@@ -25,11 +25,15 @@ final class WallpaperWindow: NSWindow {
         // enum's declaration order is NOT its numeric order, so never hardcode.
         level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)))
 
-        // One window per screen, so each already redraws on its own Space; we omit
-        // .canJoinAllSpaces (it mis-orders against full-screen Spaces on Tahoe).
+        // .canJoinAllSpaces makes the window appear on EVERY Space, including
+        // desktops the user creates later — without it a plain window is bound to
+        // the one Space it was born on, so new desktops show no wallpaper. It's safe
+        // to combine with full-screen Spaces here precisely because the window sits
+        // at desktop level (below everything), so it can never cover a full-screen
+        // app the way a normal-level canJoinAllSpaces window would.
         // .stationary keeps it put during Mission Control; .ignoresCycle hides it
         // from Cmd-` window cycling; .fullScreenNone keeps it out of full-screen UI.
-        collectionBehavior = [.stationary, .ignoresCycle, .fullScreenNone]
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenNone]
 
         ignoresMouseEvents = true      // clicks pass through to icons / Finder
         isOpaque = true                // the terrain paints an opaque sky, no blending
