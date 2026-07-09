@@ -39,6 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
             self, selector: #selector(screenParamsChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
 
+        // .canJoinAllSpaces already puts the window on every Space (incl. new ones);
+        // re-assert its back ordering on each Space switch as a belt-and-suspenders
+        // guard so nothing that opened on a freshly-created desktop can leave us
+        // stranded. Cheap and idempotent. (Lives on the *workspace* center.)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(activeSpaceChanged),
+            name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+
         // Follow live system appearance changes in Auto mode.
         NSApp.addObserver(self, forKeyPath: "effectiveAppearance",
                           options: [.new], context: nil)
@@ -99,6 +107,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
     @objc private func screenParamsChanged() {
         rebuildWindows()
         governor.refreshCoverage()
+    }
+
+    /// The user switched to another Space (possibly a brand-new desktop).
+    /// .canJoinAllSpaces means the windows already follow us there; we just
+    /// re-assert their back ordering so a window that opened on a freshly-created
+    /// desktop can't leave us stranded. Never rebuilds — no per-Space window churn.
+    @objc private func activeSpaceChanged() {
+        for (id, win) in windows {
+            guard let screen = NSScreen.screens.first(where: { $0.displayID == id }) else { continue }
+            win.pin(to: screen)
+        }
     }
 
     // MARK: Theme
