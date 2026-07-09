@@ -12,8 +12,8 @@
 #   scripts/install.sh all          # both
 #
 # Or straight from the internet (clones to a temp dir, builds, installs):
-#   curl -fsSL https://raw.githubusercontent.com/IngTian/manifold-screensaver/main/scripts/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/IngTian/manifold-screensaver/main/scripts/install.sh | bash -s -- all
+#   curl -fsSL https://raw.githubusercontent.com/IngTian/manifold/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/IngTian/manifold/main/scripts/install.sh | bash -s -- all
 #
 # Re-running it is also how you UPDATE: it fetches the latest sources, rebuilds,
 # and overwrites the installed copy in place.
@@ -22,7 +22,7 @@
 # --install`). No full Xcode required.
 set -euo pipefail
 
-REPO_URL="https://github.com/IngTian/manifold-screensaver.git"  # update to your repo
+REPO_URL="https://github.com/IngTian/manifold.git"  # update to your repo
 
 log()  { printf '\033[1;36m==>\033[0m %s\n' "$1"; }
 die()  { printf '\033[1;31mError:\033[0m %s\n' "$1" >&2; exit 1; }

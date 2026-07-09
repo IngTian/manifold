@@ -1,6 +1,6 @@
 # Manifold — a macOS screensaver & live wallpaper
 
-[![build](https://github.com/IngTian/manifold-screensaver/actions/workflows/build.yml/badge.svg)](https://github.com/IngTian/manifold-screensaver/actions/workflows/build.yml)
+[![build](https://github.com/IngTian/manifold/actions/workflows/build.yml/badge.svg)](https://github.com/IngTian/manifold/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Swift](https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white)
 ![Platform](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)
@@ -43,13 +43,13 @@ installer takes a `screensaver` (default), `wallpaper`, or `all` argument:
 
 ```sh
 # Screen saver only (default):
-curl -fsSL https://raw.githubusercontent.com/IngTian/manifold-screensaver/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/IngTian/manifold/main/scripts/install.sh | bash
 
 # Live wallpaper only:
-curl -fsSL https://raw.githubusercontent.com/IngTian/manifold-screensaver/main/scripts/install.sh | bash -s -- wallpaper
+curl -fsSL https://raw.githubusercontent.com/IngTian/manifold/main/scripts/install.sh | bash -s -- wallpaper
 
 # Both:
-curl -fsSL https://raw.githubusercontent.com/IngTian/manifold-screensaver/main/scripts/install.sh | bash -s -- all
+curl -fsSL https://raw.githubusercontent.com/IngTian/manifold/main/scripts/install.sh | bash -s -- all
 ```
 
 *(The `-s --` passes the argument through to the piped script.)*
@@ -57,8 +57,8 @@ curl -fsSL https://raw.githubusercontent.com/IngTian/manifold-screensaver/main/s
 **Or from a clone:**
 
 ```sh
-git clone https://github.com/IngTian/manifold-screensaver.git
-cd manifold-screensaver
+git clone https://github.com/IngTian/manifold.git
+cd manifold
 scripts/install.sh            # screensaver (default)
 scripts/install.sh wallpaper  # live wallpaper
 scripts/install.sh all        # both
@@ -89,7 +89,7 @@ live in preference stores, not in the app):
 
 ```sh
 # Update whatever you have installed (pick the matching component):
-curl -fsSL https://raw.githubusercontent.com/IngTian/manifold-screensaver/main/scripts/install.sh | bash -s -- all
+curl -fsSL https://raw.githubusercontent.com/IngTian/manifold/main/scripts/install.sh | bash -s -- all
 ```
 
 - **Screen saver:** the installer nudges the settings UI to reload; if a preview
