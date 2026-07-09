@@ -62,11 +62,6 @@ struct WalkerColors {
     let trail: RGB
 }
 
-enum ThemeMode {
-    case light
-    case dark
-}
-
 /// Cheap identity so callers can push the same palette every frame without
 /// restarting a theme cross-fade. `.custom` marks a blended (mid-fade) palette,
 /// which is never a fade *target*.
@@ -146,10 +141,6 @@ struct Palette {
         clockInk: RGB(223, 227, 223),
         clockShadow: RGB(8, 9, 11)
     )
-
-    static func forMode(_ mode: ThemeMode) -> Palette {
-        mode == .dark ? .dark : .light
-    }
 
     // MARK: Blending (theme cross-fade)
 

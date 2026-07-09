@@ -34,10 +34,6 @@ final class TerrainWallpaperView: NSView {
         didSet { applyFrameRate() }
     }
 
-    // The renderer draws Y-DOWN (HTML-canvas convention); this view is Y-up.
-    override var isFlipped: Bool { false }
-    override var wantsUpdateLayer: Bool { false }
-
     init(frame: NSRect, palette: Palette, showWalkers: Bool) {
         self.renderer = TerrainRenderer(palette: palette, animateWalkers: showWalkers)
         super.init(frame: frame)
@@ -63,9 +59,10 @@ final class TerrainWallpaperView: NSView {
 
     /// Set the bottom-left signature line. Pass nil or "" to hide it.
     func setFooter(_ text: String?) {
-        let trimmed = text?.isEmpty == true ? nil : text
-        guard trimmed != footer else { return }
-        footer = trimmed
+        // Normalize "" to nil so an empty message hides the line.
+        let next = (text?.isEmpty ?? true) ? nil : text
+        guard next != footer else { return }
+        footer = next
         setNeedsDisplay(bounds) // reflect immediately, even while paused
     }
 

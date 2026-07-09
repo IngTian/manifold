@@ -42,12 +42,16 @@ final class PlaybackGovernor {
     private var onBattery = false
     private var lowPower = false
 
-    private var running = false
-    private var currentFPS = 30
+    /// Frame rates the governor picks between: full on AC, halved to save power on
+    /// battery / Low Power Mode.
+    private static let fpsNormal = 30
+    private static let fpsLowPower = 15
 
-    /// The FPS the governor currently wants (30 normally, 15 on battery / Low Power).
-    /// Read by the owner when it builds a new view (e.g. a hot-plugged display) so
-    /// the new view starts at the right rate instead of the 30fps default.
+    private var running = false
+    private var currentFPS = PlaybackGovernor.fpsNormal
+
+    /// The FPS the governor currently wants. Read by the owner when it builds a new
+    /// view (e.g. a hot-plugged display) so it starts at the right rate.
     var preferredFPS: Int { currentFPS }
 
     // A low-frequency safety poll: coverage/battery have no perfect notification,
@@ -165,7 +169,7 @@ final class PlaybackGovernor {
     }
 
     private var targetFPS: Int {
-        (onBattery || lowPower) ? 15 : 30
+        (onBattery || lowPower) ? Self.fpsLowPower : Self.fpsNormal
     }
 
     private func reevaluate(force: Bool = false) {
@@ -218,7 +222,7 @@ final class PlaybackGovernor {
 
     // MARK: Power source read
 
-    static func readOnBattery() -> Bool {
+    private static func readOnBattery() -> Bool {
         // IOPSCopyPowerSourcesInfo is a "Copy" (owned → takeRetainedValue), but
         // IOPSGetProvidingPowerSourceType is a "Get" (unowned → takeUnretainedValue).
         // Using takeRetainedValue on the Get result would over-release the CFString.

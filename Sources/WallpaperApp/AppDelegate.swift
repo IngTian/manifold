@@ -223,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
     // MARK: Status bar menu
 
     private func buildStatusItem() {
-        let item = NSStatusItem.button(in: NSStatusBar.system)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.title = "⛰"
         item.button?.toolTip = "Manifold Wallpaper"
         item.menu = buildMenu()
@@ -352,11 +352,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
-}
-
-// A tiny helper so buildStatusItem reads cleanly.
-private extension NSStatusItem {
-    static func button(in bar: NSStatusBar) -> NSStatusItem {
-        bar.statusItem(withLength: NSStatusItem.variableLength)
-    }
 }

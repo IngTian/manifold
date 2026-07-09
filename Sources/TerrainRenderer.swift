@@ -221,17 +221,11 @@ final class TerrainRenderer {
 
     func setAnimateWalkers(_ on: Bool) { self.animateWalkers = on }
 
-    /// True while a theme cross-fade is in flight — lets a host keep animating
-    /// frames even when it would otherwise be idle.
-    var isFadingTheme: Bool { fadeActive }
-
     /// The clock ink/shadow to use *this frame*, matching the terrain's current
     /// cross-fade state so overlaid text fades in lockstep with the scene. Valid
     /// after a `render` call (or reflects the target palette before the first one).
     var currentClockInk: RGB { activePalette.clockInk }
     var currentClockShadow: RGB { activePalette.clockShadow }
-
-    var gridPointCount: Int { grid.count }
 
     /// Smootherstep ease (0→1) for a calm, symmetric transition.
     private func ease(_ t: Double) -> Double {
