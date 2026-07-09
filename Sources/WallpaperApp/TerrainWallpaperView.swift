@@ -123,15 +123,15 @@ final class TerrainWallpaperView: NSView {
         drawFooter(in: size)
     }
 
-    /// A small, quiet italic signature line in the bottom-left. Uses the renderer's
-    /// current ink so it cross-fades with the theme; sized as a fraction of the
-    /// view so it scales to any resolution.
+    /// A small, quiet italic signature line anchored in the lower-left at the
+    /// golden section — the mirror of the clock's right golden section (1/φ). Uses
+    /// the renderer's current ink so it cross-fades with the theme; sized as a
+    /// fraction of the view so it scales to any resolution.
     private func drawFooter(in size: CGSize) {
         guard let text = footer, !text.isEmpty else { return }
 
         let base = min(size.width, size.height)
         let fontSize = base * 0.018
-        let margin = base * 0.045
 
         let ink = renderer.currentClockInk
         var font = NSFont.systemFont(ofSize: fontSize, weight: .light)
@@ -146,7 +146,14 @@ final class TerrainWallpaperView: NSView {
             .kern: fontSize * 0.06,
         ]
         let str = NSAttributedString(string: text, attributes: attrs)
-        // Bottom-left, inset by the margin (native Y-up: y=margin is near the bottom).
-        str.draw(at: CGPoint(x: margin, y: margin))
+
+        // Golden section, not the extreme corner: left edge at the LEFT golden
+        // section (1/φ² ≈ 0.382 of the width) and baseline at the BOTTOM golden
+        // section (0.382 of the height, native Y-up). This balances the clock,
+        // which sits at the RIGHT golden section (1/φ ≈ 0.618).
+        let goldenComplement: CGFloat = 0.3819660112501051 // 1/φ² = 1 − 1/φ
+        let x = size.width * goldenComplement
+        let y = size.height * goldenComplement
+        str.draw(at: CGPoint(x: x, y: y))
     }
 }
