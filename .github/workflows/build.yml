@@ -1,0 +1,71 @@
+name: build
+
+# Build both artifacts on a macOS runner so every PR is proven to compile as a
+# universal binary before it can merge. This is the status check that branch
+# protection on `main` requires.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build screensaver + wallpaper (universal)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          sw_vers
+          swift --version
+          xcrun --show-sdk-path
+
+      - name: Build the screensaver (.saver)
+        run: bash scripts/build.sh
+
+      - name: Build the live wallpaper (.app)
+        run: bash scripts/build-wallpaper.sh
+
+      - name: Verify universal binaries (arm64 + x86_64)
+        run: |
+          set -euo pipefail
+          saver_bin="build/Manifold.saver/Contents/MacOS/Manifold"
+          wp_bin="build/Manifold Wallpaper.app/Contents/MacOS/ManifoldWallpaper"
+          echo "Saver:     $(lipo -archs "$saver_bin")"
+          echo "Wallpaper: $(lipo -archs "$wp_bin")"
+          for bin in "$saver_bin" "$wp_bin"; do
+            archs="$(lipo -archs "$bin")"
+            case "$archs" in
+              *arm64*x86_64*|*x86_64*arm64*) : ;;
+              *) echo "::error::$bin is not universal (got: $archs)"; exit 1 ;;
+            esac
+          done
+
+      - name: Verify the saver's principal class loads
+        run: |
+          set -euo pipefail
+          SDK="$(xcrun --show-sdk-path)"
+          swiftc -sdk "$SDK" -framework AppKit -framework ScreenSaver \
+            tools/render_frames.swift -o build/render_frames
+          mkdir -p build/frames
+          # Loads the built .saver exactly as the host does and renders a frame;
+          # fails if the principal class / renderer is broken.
+          THEME=dark ./build/render_frames "build/Manifold.saver" build/frames 800 500
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifold-build
+          path: |
+            build/Manifold.saver
+            build/Manifold Wallpaper.app
+          if-no-files-found: warn
+          retention-days: 7

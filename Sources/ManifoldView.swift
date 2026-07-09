@@ -44,7 +44,7 @@ final class ManifoldView: ScreenSaverView {
         animationTimeInterval = 1.0 / 30.0
         wantsLayer = true
         configureFormatters()
-        renderer.setPalette(currentPalette())
+        renderer.setPaletteImmediately(currentPalette()) // no fade on first build
     }
 
     @available(*, unavailable)
@@ -56,7 +56,7 @@ final class ManifoldView: ScreenSaverView {
 
     override func startAnimation() {
         startTime = Date()
-        renderer.setPalette(currentPalette())
+        renderer.setPaletteImmediately(currentPalette()) // no fade when (re)starting
         renderer.setAnimateWalkers(settings.showWalkers)
         configureFormatters()
         super.startAnimation()
@@ -97,9 +97,10 @@ final class ManifoldView: ScreenSaverView {
     // MARK: Clock
 
     private func drawClock(in size: CGSize, now: Date, nowMs: Double) {
-        let palette = currentPalette()
-        let ink = palette.clockInk.cgColor(alpha: 1.0)
-        let shadowColor = palette.clockShadow.cgColor(alpha: 0.55)
+        // Pull the clock colors from the renderer so they cross-fade in lockstep
+        // with the terrain during a theme switch (rather than snapping).
+        let ink = renderer.currentClockInk.cgColor(alpha: 1.0)
+        let shadowColor = renderer.currentClockShadow.cgColor(alpha: 0.55)
 
         let base = min(size.width, size.height)
         let timeSize = base * 0.17
