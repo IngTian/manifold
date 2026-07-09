@@ -123,37 +123,40 @@ final class TerrainWallpaperView: NSView {
         drawFooter(in: size)
     }
 
-    /// A small, quiet italic signature line anchored in the lower-left at the
-    /// golden section — the mirror of the clock's right golden section (1/φ). Uses
-    /// the renderer's current ink so it cross-fades with the theme; sized as a
-    /// fraction of the view so it scales to any resolution.
+    /// An italic serif signature line in the lower-left quadrant. Sized to read
+    /// like a title (not a footnote) and drawn in the renderer's current ink so it
+    /// stays legible and cross-fades with the theme. Everything is a fraction of
+    /// the view, so it scales to any resolution.
     private func drawFooter(in size: CGSize) {
         guard let text = footer, !text.isEmpty else { return }
 
         let base = min(size.width, size.height)
-        let fontSize = base * 0.018
+        let fontSize = base * 0.038 // ~2x the old size — prominent, clock-scale
 
+        // Serif, italic — an elegant signature. Compose the serif *design* with the
+        // italic trait on top of the system font descriptor.
+        let seed = NSFont.systemFont(ofSize: fontSize, weight: .regular).fontDescriptor
+        let serif = seed.withDesign(.serif) ?? seed
+        let desc = serif.withSymbolicTraits(.italic)
+        let font = NSFont(descriptor: desc, size: fontSize)
+            ?? NSFont.systemFont(ofSize: fontSize)
+
+        // Bright, theme-aware ink: near-white on the dark field, near-black on light.
         let ink = renderer.currentClockInk
-        var font = NSFont.systemFont(ofSize: fontSize, weight: .light)
-        if let italic = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic),
-                               size: fontSize) {
-            font = italic
-        }
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: (NSColor(cgColor: ink.cgColor(alpha: 1)) ?? .labelColor)
-                .withAlphaComponent(0.6),
-            .kern: fontSize * 0.06,
+                .withAlphaComponent(0.9),
+            .kern: fontSize * 0.04,
         ]
         let str = NSAttributedString(string: text, attributes: attrs)
 
-        // Golden section, not the extreme corner: left edge at the LEFT golden
-        // section (1/φ² ≈ 0.382 of the width) and baseline at the BOTTOM golden
-        // section (0.382 of the height, native Y-up). This balances the clock,
-        // which sits at the RIGHT golden section (1/φ ≈ 0.618).
-        let goldenComplement: CGFloat = 0.3819660112501051 // 1/φ² = 1 − 1/φ
-        let x = size.width * goldenComplement
-        let y = size.height * goldenComplement
+        // Lower-left quadrant (not the extreme corner): left edge ~0.17 of the
+        // width, vertically centered on ~0.33 of the height from the bottom.
+        let leftFraction: CGFloat = 0.17
+        let bottomFraction: CGFloat = 0.33 // of the height, to the line's center
+        let x = size.width * leftFraction
+        let y = size.height * bottomFraction - str.size().height / 2
         str.draw(at: CGPoint(x: x, y: y))
     }
 }
