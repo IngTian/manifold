@@ -3,7 +3,8 @@
 //  Persisted options for the Manifold live wallpaper, backed by a private
 //  UserDefaults suite. Deliberately tiny and independent of the screensaver's
 //  Settings.swift / ScreenSaverDefaults — the wallpaper app never links the
-//  ScreenSaver framework. Terrain-only by design: no clock, no motto.
+//  ScreenSaver framework. No clock by design; an optional bottom-left signature
+//  line is the only text.
 //
 
 import AppKit
@@ -33,6 +34,11 @@ final class WallpaperSettings {
     private let kTheme = "theme"
     private let kWalkers = "showWalkers"
     private let kPauseOnBattery = "pauseOnBattery"
+    private let kShowFooter = "showFooter"
+    private let kFooter = "footerMessage"
+
+    /// Shipping default footer — placeholder text, personalized per install.
+    static let defaultFooter = "Lorem Ipsum"
 
     init(suiteName: String = "com.ingtian.manifold.wallpaper") {
         self.defaults = UserDefaults(suiteName: suiteName) ?? .standard
@@ -40,6 +46,8 @@ final class WallpaperSettings {
             kTheme: WallpaperTheme.auto.rawValue,
             kWalkers: false,          // the breathing field stands on its own
             kPauseOnBattery: false,   // keep it alive on battery by default (15fps)
+            kShowFooter: false,       // no signature line unless the user turns it on
+            kFooter: WallpaperSettings.defaultFooter,
         ])
     }
 
@@ -56,5 +64,17 @@ final class WallpaperSettings {
     var pauseOnBattery: Bool {
         get { defaults.bool(forKey: kPauseOnBattery) }
         set { defaults.set(newValue, forKey: kPauseOnBattery) }
+    }
+
+    /// Whether to draw the small signature line in the bottom-left corner.
+    var showFooter: Bool {
+        get { defaults.bool(forKey: kShowFooter) }
+        set { defaults.set(newValue, forKey: kShowFooter) }
+    }
+
+    /// The footer text. Empty string also hides it.
+    var footerMessage: String {
+        get { defaults.string(forKey: kFooter) ?? WallpaperSettings.defaultFooter }
+        set { defaults.set(newValue, forKey: kFooter) }
     }
 }

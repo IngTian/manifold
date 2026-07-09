@@ -72,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
                 win.pin(to: screen)
                 view.frame = win.contentLayoutRect
                 view.setPalette(palette, animated: false)
+                view.setFooter(currentFooter())
                 continue
             }
 
@@ -82,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
             // Start at the governor's current rate, not the 30fps default — else a
             // display hot-plugged while on battery would animate at 30 not 15.
             view.maxFPS = governor.preferredFPS
+            view.setFooter(currentFooter())
             view.autoresizingMask = [.width, .height]
             win.contentView = view
             win.pin(to: screen)
@@ -112,6 +114,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
 
     private func isSystemDark() -> Bool {
         NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+
+    // MARK: Footer
+
+    /// The signature line to show, or nil when disabled/empty.
+    private func currentFooter() -> String? {
+        settings.showFooter ? settings.footerMessage : nil
+    }
+
+    private func applyFooter() {
+        let f = currentFooter()
+        for v in views.values { v.setFooter(f) }
     }
 
     /// Push the resolved palette to every view. A cross-fade is only worth
@@ -244,6 +258,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
 
         menu.addItem(.separator())
 
+        let footer = NSMenuItem(title: "Show message", action: #selector(toggleFooter), keyEquivalent: "")
+        footer.target = self
+        footer.state = settings.showFooter ? .on : .off
+        menu.addItem(footer)
+
+        let setMsg = NSMenuItem(title: "Set message…", action: #selector(editFooter), keyEquivalent: "")
+        setMsg.target = self
+        menu.addItem(setMsg)
+
+        menu.addItem(.separator())
+
         let login = NSMenuItem(title: "Launch at login", action: #selector(toggleLogin), keyEquivalent: "")
         login.target = self
         login.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
@@ -275,6 +300,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
         settings.pauseOnBattery.toggle()
         governor.pauseOnBattery = settings.pauseOnBattery
         refreshMenu()
+    }
+
+    @objc private func toggleFooter() {
+        settings.showFooter.toggle()
+        applyFooter()
+        refreshMenu()
+    }
+
+    @objc private func editFooter() {
+        let alert = NSAlert()
+        alert.messageText = "Signature message"
+        alert.informativeText = "A small italic line shown in the bottom-left corner."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        field.stringValue = settings.footerMessage
+        field.placeholderString = WallpaperSettings.defaultFooter
+        alert.accessoryView = field
+        // Give the text field focus so the user can type immediately.
+        alert.window.initialFirstResponder = field
+
+        // A panel from a menu-bar agent needs the app frontmost to receive the modal.
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            settings.footerMessage = field.stringValue
+            // Editing the text implies you want to see it.
+            if !settings.showFooter { settings.showFooter = true }
+            applyFooter()
+            refreshMenu()
+        }
     }
 
     @objc private func toggleLogin() {

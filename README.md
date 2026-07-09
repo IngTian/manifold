@@ -77,9 +77,10 @@ scripts/build-wallpaper.sh install    # builds + installs to /Applications and l
 ```
 
 A **⛰ menu-bar icon** gives you Theme (Auto / Light / Dark), walker particles,
-*Pause on battery*, *Launch at login*, and Quit. It's terrain-only by design — no
-clock, no motto — a calm backdrop rather than a second clock competing with your
-menu bar.
+*Pause on battery*, an optional **message** (a small italic signature line in the
+bottom-left corner — off by default, `Set message…` to edit), *Launch at login*,
+and Quit. No clock by design — a calm backdrop rather than a second clock competing
+with your menu bar.
 
 **Why a separate app?** macOS exposes no public API for animated wallpapers, so —
 like every third-party live wallpaper (Plash, etc.) — it pins its own borderless

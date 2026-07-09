@@ -4,8 +4,9 @@
 //  the screensaver's TerrainRenderer verbatim (shared source), driven by a
 //  CADisplayLink for smooth, display-synced, power-friendly frame pacing.
 //
-//  Terrain-only: no clock, no motto (the wallpaper's whole point is a calm,
-//  minimal backdrop). Theme switches cross-fade via the renderer.
+//  Minimal by default: just the calm breathing terrain. An optional small
+//  signature line can be drawn in the bottom-left corner. Theme switches
+//  cross-fade via the renderer, and the footer fades in lockstep.
 //
 
 import AppKit
@@ -15,6 +16,9 @@ final class TerrainWallpaperView: NSView {
 
     private let renderer: TerrainRenderer
     private var displayLink: CADisplayLink?
+
+    /// Optional signature line drawn bottom-left. nil / empty → nothing drawn.
+    private var footer: String?
 
     // A monotonic timeline in ms. We accumulate only while running so a pause
     // doesn't cause the breathing/walkers to lurch forward on resume.
@@ -56,6 +60,14 @@ final class TerrainWallpaperView: NSView {
     }
 
     func setShowWalkers(_ on: Bool) { renderer.setAnimateWalkers(on) }
+
+    /// Set the bottom-left signature line. Pass nil or "" to hide it.
+    func setFooter(_ text: String?) {
+        let trimmed = text?.isEmpty == true ? nil : text
+        guard trimmed != footer else { return }
+        footer = trimmed
+        setNeedsDisplay(bounds) // reflect immediately, even while paused
+    }
 
     // MARK: Animation loop
 
@@ -106,5 +118,35 @@ final class TerrainWallpaperView: NSView {
         ctx.scaleBy(x: 1, y: -1)
         renderer.render(in: ctx, size: size, nowMs: elapsedMs, animate: isRunning)
         ctx.restoreGState()
+
+        // Footer pass, in the view's native Y-up space (like the saver's clock).
+        drawFooter(in: size)
+    }
+
+    /// A small, quiet italic signature line in the bottom-left. Uses the renderer's
+    /// current ink so it cross-fades with the theme; sized as a fraction of the
+    /// view so it scales to any resolution.
+    private func drawFooter(in size: CGSize) {
+        guard let text = footer, !text.isEmpty else { return }
+
+        let base = min(size.width, size.height)
+        let fontSize = base * 0.018
+        let margin = base * 0.045
+
+        let ink = renderer.currentClockInk
+        var font = NSFont.systemFont(ofSize: fontSize, weight: .light)
+        if let italic = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic),
+                               size: fontSize) {
+            font = italic
+        }
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: (NSColor(cgColor: ink.cgColor(alpha: 1)) ?? .labelColor)
+                .withAlphaComponent(0.6),
+            .kern: fontSize * 0.06,
+        ]
+        let str = NSAttributedString(string: text, attributes: attrs)
+        // Bottom-left, inset by the margin (native Y-up: y=margin is near the bottom).
+        str.draw(at: CGPoint(x: margin, y: margin))
     }
 }
