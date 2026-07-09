@@ -1,5 +1,6 @@
-# Manifold — a macOS screensaver
+# Manifold — a macOS screensaver & live wallpaper
 
+[![build](https://github.com/IngTian/manifold-screensaver/actions/workflows/build.yml/badge.svg)](https://github.com/IngTian/manifold-screensaver/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Swift](https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white)
 ![Platform](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)
@@ -26,7 +27,8 @@ through a fixed yaw+tilt rotation and drawn as ~1000 elevation-colored dots. The
 field breathes slowly, and glowing "walker" particles periodically trace
 gradient-descent paths downhill and settle with a soft glow. Colors (sky gradient,
 elevation ramp, walker glow) are the exact values from the site's `SkyWash.css`
-and `terrain.js`, for both light and dark themes.
+and `terrain.js`, for both light and dark themes — and switching themes **cross-fades**
+smoothly (a slow dawn/dusk transition) rather than snapping.
 
 ## Install
 
@@ -63,6 +65,35 @@ scripts/build.sh            # builds build/Manifold.saver (universal arm64 + x86
 scripts/build.sh install    # …and copies it to ~/Library/Screen Savers
 ```
 
+## Live wallpaper (bonus)
+
+The same terrain can also run as a **live desktop wallpaper** — the breathing
+mountain behind your icons, with an animated light↔dark cross-fade. It's a tiny
+background app (`Manifold Wallpaper.app`) that shares the exact renderer with the
+screensaver.
+
+```sh
+scripts/build-wallpaper.sh install    # builds + installs to /Applications and launches
+```
+
+A **⛰ menu-bar icon** gives you Theme (Auto / Light / Dark), walker particles,
+*Pause on battery*, *Launch at login*, and Quit. It's terrain-only by design — no
+clock, no motto — a calm backdrop rather than a second clock competing with your
+menu bar.
+
+**Why a separate app?** macOS exposes no public API for animated wallpapers, so —
+like every third-party live wallpaper (Plash, etc.) — it pins its own borderless
+window at the desktop level (above the static wallpaper, below your icons). Because
+it never touches the screensaver subsystem, it's unaffected by MDM screensaver
+policies. It's **battery-aware**: 30 fps normally, 15 fps on battery / Low Power
+Mode, and it fully pauses (≈0 % CPU) whenever the desktop is covered, the display
+sleeps, the screen is locked, or the real screensaver runs.
+
+> *Launch at login* uses `SMAppService`, which wants a stably-located, signed app —
+> that's why the installer puts it in `/Applications`. If the toggle ever fails on
+> an ad-hoc build the app still runs; enable it manually in **System Settings →
+> General → Login Items**.
+
 ## Options (Options… panel, persisted via ScreenSaverDefaults)
 
 - **24-hour time** (default on) — `14:32` vs `2:32 pm`
@@ -91,16 +122,27 @@ instead of leaving empty side margins.
 ```
 Sources/
   Palette.swift          SkyWash gradient + elevation ramps + walker colors (light/dark)
+                           + palette blending for the theme cross-fade   [shared]
   TerrainRenderer.swift  Core Graphics port of terrain.js (field, projection, walkers)
+                           + the animated theme cross-fade state machine  [shared]
   Settings.swift         ScreenSaverDefaults-backed options + FontDesign/ThemePreference
   ManifoldView.swift     ScreenSaverView principal class (draw, layout, config sheet)
   ConfigSheet.swift      Programmatic AppKit options sheet
+  WallpaperApp/          The live-wallpaper agent app (reuses the two [shared] files):
+    main.swift             accessory-app entry point
+    AppDelegate.swift      per-display windows, status-bar menu, theme, launch-at-login
+    WallpaperWindow.swift  borderless NSWindow pinned at the desktop level
+    TerrainWallpaperView.swift  layer-backed view, CADisplayLink frame pacing
+    PlaybackGovernor.swift particle/battery/occlusion/sleep/lock pause logic
+    WallpaperSettings.swift  UserDefaults-backed options (own suite, no ScreenSaver dep)
 Resources/
-  Info.plist             NSPrincipalClass = ManifoldView
+  Info.plist             NSPrincipalClass = ManifoldView (the .saver)
+  Wallpaper-Info.plist   LSUIElement agent app (the wallpaper)
   thumbnail.png/@2x      System Settings preview image (a real rendered frame)
 scripts/
   build.sh               swiftc → universal .saver bundle (+ optional install)
-  install.sh             one-command clone + build + install
+  build-wallpaper.sh     swiftc → universal "Manifold Wallpaper.app" (+ optional install)
+  install.sh             one-command clone + build + install (the screensaver)
 tools/
   render_frames.swift    Headless verifier: loads the real .saver and renders PNGs
 ```

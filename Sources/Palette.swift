@@ -28,8 +28,22 @@ struct RGB {
         self.b = b255 / 255.0
     }
 
+    /// Build directly from already-normalized (0…1) components — used for blending.
+    init(rNorm: CGFloat, gNorm: CGFloat, bNorm: CGFloat) {
+        self.r = rNorm
+        self.g = gNorm
+        self.b = bNorm
+    }
+
     func cgColor(alpha: CGFloat) -> CGColor {
         CGColor(red: r, green: g, blue: b, alpha: alpha)
+    }
+
+    /// Linear interpolation in normalized RGB space (used for theme cross-fades).
+    static func lerp(_ a: RGB, _ b: RGB, _ t: CGFloat) -> RGB {
+        RGB(rNorm: a.r + (b.r - a.r) * t,
+            gNorm: a.g + (b.g - a.g) * t,
+            bNorm: a.b + (b.b - a.b) * t)
     }
 }
 
@@ -53,8 +67,18 @@ enum ThemeMode {
     case dark
 }
 
+/// Cheap identity so callers can push the same palette every frame without
+/// restarting a theme cross-fade. `.custom` marks a blended (mid-fade) palette,
+/// which is never a fade *target*.
+enum PaletteID {
+    case light
+    case dark
+    case custom
+}
+
 /// All theme-dependent color choices for one mode.
 struct Palette {
+    let id: PaletteID              // identity for fade de-duplication
     let sky: [GradientStop]        // the full-page "descent" background gradient
     let ramp: ElevationRamp        // terrain dot colors by elevation
     let walker: WalkerColors       // walker glow / settled / trail
@@ -72,6 +96,7 @@ struct Palette {
     /// #f4efe4 0%, #f0eadf 8%, #efe6d4 15%, #e2d2c2 23%, #ccc4b6 30%, #a6a8ad 37%,
     /// #7d7e88 44%, #565660 52%, #3a3833 62%, #2a2720 78%, #1d1b16 90%, #16140f 100%.
     static let light = Palette(
+        id: .light,
         sky: [
             GradientStop(location: 0.000, rgb: hex(0xf4efe4)), // 0%    ÷0.44
             GradientStop(location: 0.182, rgb: hex(0xf0eadf)), // 8%
@@ -101,6 +126,7 @@ struct Palette {
     /// linear-gradient(180deg, #16191d 0%, #131619 20%, #111417 40%, #0e1013 60%,
     ///   #0b0d0f 80%, #08090b 100%)
     static let dark = Palette(
+        id: .dark,
         sky: [
             GradientStop(location: 0.00, rgb: hex(0x16191d)),
             GradientStop(location: 0.20, rgb: hex(0x131619)),
@@ -123,6 +149,67 @@ struct Palette {
 
     static func forMode(_ mode: ThemeMode) -> Palette {
         mode == .dark ? .dark : .light
+    }
+
+    // MARK: Blending (theme cross-fade)
+
+    /// Sample the vertical sky gradient at `loc` (0…1), interpolating between stops.
+    /// Assumes stops are sorted by `location` (they are, by construction).
+    func skyColor(at loc: CGFloat) -> RGB {
+        guard let first = sky.first else { return RGB(0, 0, 0) }
+        if loc <= first.location { return RGB(rNorm: first.rgb.0, gNorm: first.rgb.1, bNorm: first.rgb.2) }
+        if let last = sky.last, loc >= last.location {
+            return RGB(rNorm: last.rgb.0, gNorm: last.rgb.1, bNorm: last.rgb.2)
+        }
+        for i in 1..<sky.count {
+            let lo = sky[i - 1], hi = sky[i]
+            if loc <= hi.location {
+                let span = hi.location - lo.location
+                let t = span > 0 ? (loc - lo.location) / span : 0
+                let a = RGB(rNorm: lo.rgb.0, gNorm: lo.rgb.1, bNorm: lo.rgb.2)
+                let b = RGB(rNorm: hi.rgb.0, gNorm: hi.rgb.1, bNorm: hi.rgb.2)
+                return RGB.lerp(a, b, t)
+            }
+        }
+        let l = sky[sky.count - 1]
+        return RGB(rNorm: l.rgb.0, gNorm: l.rgb.1, bNorm: l.rgb.2)
+    }
+
+    /// A palette that is `t` of the way from `self` to `other` (t in 0…1).
+    /// Every color channel is interpolated so a theme switch can cross-fade
+    /// smoothly instead of snapping. The sky is resampled onto a shared set of
+    /// stop locations (the two themes have different stop counts).
+    func blended(to other: Palette, t rawT: CGFloat) -> Palette {
+        let t = max(0, min(1, rawT))
+        if t <= 0 { return self }
+        if t >= 1 { return other }
+
+        // Union of both themes' stop locations → resample both, then lerp.
+        var locs = Set<CGFloat>()
+        for s in sky { locs.insert(s.location) }
+        for s in other.sky { locs.insert(s.location) }
+        let sortedLocs = locs.sorted()
+        let blendedSky: [GradientStop] = sortedLocs.map { loc in
+            let a = self.skyColor(at: loc)
+            let b = other.skyColor(at: loc)
+            let c = RGB.lerp(a, b, t)
+            return GradientStop(location: loc, rgb: (c.r, c.g, c.b))
+        }
+
+        return Palette(
+            id: .custom,
+            sky: blendedSky,
+            ramp: ElevationRamp(
+                valley: RGB.lerp(ramp.valley, other.ramp.valley, t),
+                mid: RGB.lerp(ramp.mid, other.ramp.mid, t),
+                peak: RGB.lerp(ramp.peak, other.ramp.peak, t)),
+            walker: WalkerColors(
+                glow: RGB.lerp(walker.glow, other.walker.glow, t),
+                settled: RGB.lerp(walker.settled, other.walker.settled, t),
+                trail: RGB.lerp(walker.trail, other.walker.trail, t)),
+            clockInk: RGB.lerp(clockInk, other.clockInk, t),
+            clockShadow: RGB.lerp(clockShadow, other.clockShadow, t)
+        )
     }
 
     /// #RRGGBB → normalized (r,g,b) triple.

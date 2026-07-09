@@ -155,7 +155,18 @@ final class TerrainRenderer {
     private let grid: [GridPoint]
 
     private var palette: Palette
+    /// The palette actually used for this frame's draw calls (== `palette` unless a
+    /// theme cross-fade is mid-flight). Set once at the top of `render`.
+    private var activePalette: Palette
     private var animateWalkers: Bool
+
+    // Theme cross-fade: when the target palette's identity changes, we ease from
+    // the palette shown at the switch instant to the new one over `fadeDuration`.
+    private var fadeFrom: Palette
+    private var fadeStartMs: Double = 0
+    private var fadeActive = false
+    private let fadeDuration: Double = 650 // ms — a calm dawn/dusk transition
+    private var lastNowMs: Double = 0
 
     // Walker spawn state (terrain.js: m, T, F, j).
     private var walkers: [Walker] = []
@@ -167,6 +178,8 @@ final class TerrainRenderer {
 
     init(palette: Palette, animateWalkers: Bool = true) {
         self.palette = palette
+        self.activePalette = palette
+        self.fadeFrom = palette
         self.animateWalkers = animateWalkers
 
         // Build the grid once, replicating terrain.js's float accumulation exactly
@@ -185,10 +198,56 @@ final class TerrainRenderer {
         self.grid = pts
     }
 
-    func setPalette(_ p: Palette) { self.palette = p }
+    /// Set the target palette. If its theme identity differs from what's currently
+    /// shown, a smooth cross-fade begins (animated over `fadeDuration`). Pushing the
+    /// same identity every frame is a no-op, so callers can call this each frame.
+    func setPalette(_ p: Palette) {
+        // Ignore repeats of the identity we're already showing/targeting.
+        if p.id == palette.id { return }
+        // Begin (or redirect) a fade from whatever is on screen right now.
+        fadeFrom = effectivePalette(atMs: lastNowMs)
+        fadeStartMs = lastNowMs
+        fadeActive = true
+        palette = p
+    }
+
+    /// Set the palette immediately with no cross-fade (e.g. first appearance).
+    func setPaletteImmediately(_ p: Palette) {
+        palette = p
+        fadeFrom = p
+        activePalette = p   // keep currentClockInk/Shadow correct before first render
+        fadeActive = false
+    }
+
     func setAnimateWalkers(_ on: Bool) { self.animateWalkers = on }
 
+    /// True while a theme cross-fade is in flight — lets a host keep animating
+    /// frames even when it would otherwise be idle.
+    var isFadingTheme: Bool { fadeActive }
+
+    /// The clock ink/shadow to use *this frame*, matching the terrain's current
+    /// cross-fade state so overlaid text fades in lockstep with the scene. Valid
+    /// after a `render` call (or reflects the target palette before the first one).
+    var currentClockInk: RGB { activePalette.clockInk }
+    var currentClockShadow: RGB { activePalette.clockShadow }
+
     var gridPointCount: Int { grid.count }
+
+    /// Smootherstep ease (0→1) for a calm, symmetric transition.
+    private func ease(_ t: Double) -> Double {
+        let x = max(0, min(1, t))
+        return x * x * x * (x * (x * 6 - 15) + 10)
+    }
+
+    /// The palette to actually draw with at `nowMs`, accounting for an in-flight
+    /// cross-fade. When no fade is active this is just the current palette.
+    private func effectivePalette(atMs nowMs: Double) -> Palette {
+        guard fadeActive else { return palette }
+        let raw = (nowMs - fadeStartMs) / fadeDuration
+        if raw >= 1 { return palette }
+        if raw <= 0 { return fadeFrom }
+        return fadeFrom.blended(to: palette, t: CGFloat(ease(raw)))
+    }
 
     /// Draw one frame. `size` is the drawing area (point space, Y-down). `nowMs` is
     /// elapsed time in milliseconds. `animate` enables breathing + walkers.
@@ -196,6 +255,15 @@ final class TerrainRenderer {
         let width = Double(size.width)
         let height = Double(size.height)
         guard width > 1, height > 1 else { return }
+
+        // Resolve the theme cross-fade for this frame. `lastNowMs` lets setPalette()
+        // (which has no clock of its own) start a fade from the right instant.
+        lastNowMs = nowMs
+        activePalette = effectivePalette(atMs: nowMs)
+        if fadeActive && (nowMs - fadeStartMs) >= fadeDuration {
+            fadeActive = false
+            fadeFrom = palette
+        }
 
         drawSky(in: ctx, size: size)
 
@@ -246,7 +314,7 @@ final class TerrainRenderer {
         let space = CGColorSpaceCreateDeviceRGB()
         var colors: [CGColor] = []
         var locations: [CGFloat] = []
-        for stop in palette.sky {
+        for stop in activePalette.sky {
             colors.append(CGColor(colorSpace: space,
                                   components: [stop.rgb.0, stop.rgb.1, stop.rgb.2, 1.0])!)
             locations.append(stop.location)
@@ -286,9 +354,9 @@ final class TerrainRenderer {
         let trailLife = 4600.0 // l
         let settleHold = 1600.0 // $
 
-        let glow = palette.walker.glow
-        let settled = palette.walker.settled
-        let trail = palette.walker.trail
+        let glow = activePalette.walker.glow
+        let settled = activePalette.walker.settled
+        let trail = activePalette.walker.trail
 
         for w in walkers {
             let age = nowMs - w.born
@@ -336,27 +404,18 @@ final class TerrainRenderer {
     // MARK: Color
 
     /// Elevation → color via the two-segment ramp — terrain.js Et().
+    /// Linear interpolation is scale-invariant, so it's fine to lerp in normalized
+    /// RGB space (RGB.lerp) — same result as the site's 0…255 mix, one helper.
     private func elevationColor(_ n: Double) -> RGB {
-        let r = palette.ramp
+        let r = activePalette.ramp
         if n < 0.5 {
-            return lerp(r.valley, r.mid, n / 0.5)
+            return RGB.lerp(r.valley, r.mid, CGFloat(n / 0.5))
         } else {
-            return lerp(r.mid, r.peak, (n - 0.5) / 0.5)
+            return RGB.lerp(r.mid, r.peak, CGFloat((n - 0.5) / 0.5))
         }
-    }
-
-    private func lerp(_ a: RGB, _ b: RGB, _ t: Double) -> RGB {
-        RGB255(a.r * 255 + (b.r * 255 - a.r * 255) * CGFloat(t),
-               a.g * 255 + (b.g * 255 - a.g * 255) * CGFloat(t),
-               a.b * 255 + (b.b * 255 - a.b * 255) * CGFloat(t))
     }
 
     private func fillCircle(_ ctx: CGContext, cx: Double, cy: Double, r: Double) {
         ctx.fillEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
     }
-}
-
-/// Helper to build an RGB from already-normalized-ish component values kept in 0…255 space.
-private func RGB255(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> RGB {
-    RGB(r, g, b)
 }
