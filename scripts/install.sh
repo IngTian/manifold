@@ -1,26 +1,38 @@
 #!/bin/bash
 #
-# install.sh — one-command install of the Manifold screensaver.
+# install.sh — one-command install of Manifold (screensaver and/or live wallpaper).
 #
-# Because the .saver is built locally on your machine, macOS does NOT quarantine
+# Because everything is built locally on your machine, macOS does NOT quarantine
 # it, so there's no Gatekeeper "unidentified developer" wall — no paid Apple
 # Developer account or notarization needed.
 #
-# Run from a clone:
-#   scripts/install.sh
+# Choose what to install with an argument (default: screensaver):
+#   scripts/install.sh              # the screensaver only
+#   scripts/install.sh wallpaper    # the live desktop wallpaper only
+#   scripts/install.sh all          # both
 #
 # Or straight from the internet (clones to a temp dir, builds, installs):
 #   curl -fsSL https://raw.githubusercontent.com/IngTian/manifold-screensaver/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/IngTian/manifold-screensaver/main/scripts/install.sh | bash -s -- all
+#
+# Re-running it is also how you UPDATE: it fetches the latest sources, rebuilds,
+# and overwrites the installed copy in place.
 #
 # Requirements: macOS 14+ and the Xcode Command Line Tools (`xcode-select
 # --install`). No full Xcode required.
 set -euo pipefail
 
 REPO_URL="https://github.com/IngTian/manifold-screensaver.git"  # update to your repo
-NAME="Manifold"
 
 log()  { printf '\033[1;36m==>\033[0m %s\n' "$1"; }
 die()  { printf '\033[1;31mError:\033[0m %s\n' "$1" >&2; exit 1; }
+
+# 0. What to install.
+COMPONENT="${1:-screensaver}"
+case "$COMPONENT" in
+	screensaver|wallpaper|all) ;;
+	*) die "Unknown component '$COMPONENT'. Use: screensaver | wallpaper | all" ;;
+esac
 
 # 1. Preconditions.
 [[ "$(uname -s)" == "Darwin" ]] || die "This installer is for macOS only."
@@ -44,20 +56,34 @@ else
 	ROOT="$TMP/src"
 fi
 
-# 3. Build + install the .saver (universal binary, ad-hoc signed).
-log "Building and installing the screensaver…"
-bash "$ROOT/scripts/build.sh" install
+# 3. Build + install the chosen component(s) (universal binaries, ad-hoc signed).
+if [[ "$COMPONENT" == "screensaver" || "$COMPONENT" == "all" ]]; then
+	log "Building and installing the screensaver…"
+	bash "$ROOT/scripts/build.sh" install
+	# Nudge the settings UI to re-scan so it appears/updates without a logout.
+	killall WallpaperAgent legacyScreenSaver 2>/dev/null || true
+fi
 
-# 4. Nudge the settings UI to re-scan so it appears without a logout.
-killall WallpaperAgent legacyScreenSaver 2>/dev/null || true
+if [[ "$COMPONENT" == "wallpaper" || "$COMPONENT" == "all" ]]; then
+	log "Building and installing the live wallpaper…"
+	# build-wallpaper.sh install quits any running copy, replaces the app in
+	# /Applications, and relaunches it — so this doubles as the update path.
+	bash "$ROOT/scripts/build-wallpaper.sh" install
+fi
 
-cat <<'DONE'
-
-==> Installed to ~/Library/Screen Savers/Manifold.saver
-
-To activate it:
-  System Settings → Screen Saver → scroll down → "Manifold"
-  (Third-party savers appear in the "Other" group, below the built-in ones.)
-
-Configure it with the "Options…" button (24h, seconds, date, theme, font, motto).
+# 4. Closing notes, tailored to what was installed.
+echo
+if [[ "$COMPONENT" == "screensaver" || "$COMPONENT" == "all" ]]; then
+	cat <<'DONE'
+==> Screen saver installed to ~/Library/Screen Savers/Manifold.saver
+    Activate:  System Settings → Screen Saver → scroll to "Other" → "Manifold"
+    Configure: click "Options…" (24h, seconds, date, theme, font, motto)
 DONE
+fi
+if [[ "$COMPONENT" == "wallpaper" || "$COMPONENT" == "all" ]]; then
+	cat <<'DONE'
+==> Live wallpaper installed to /Applications/Manifold Wallpaper.app (now running)
+    Configure: click the ⛰ icon in the menu bar
+               (theme, walkers, message, pause-on-battery, launch-at-login)
+DONE
+fi
