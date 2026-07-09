@@ -221,7 +221,7 @@ With a scale factor $f = 0.34 \cdot \max\!\big(\min(W, H),\ 0.46\,W\big)$ (the
 $\max$ is the ultra-wide fill — a uniform zoom, never a stretch), the on-screen
 position is $\big(\tfrac{W}{2} + u f,\ 0.46\,H - p f\big)$. Points are painted
 back-to-front by `depth`, and colored by a normalized elevation
-$\ell = \operatorname{clamp}\big((z + J)/2J,\ 0, 1\big)$ (with $J = 1.55$) that
+$\ell = \mathrm{clamp}\big((z + J)/2J,\ 0, 1\big)$ (with $J = 1.55$) that
 drives both the dot's color ramp and its radius/opacity.
 
 **Walkers.** The glowing particles are literally gradient descent: from a fixed
