@@ -200,10 +200,10 @@ final class TerrainRenderer {
     private static let referenceScale = Projector().scale(width: 1600, height: 1000)
 
     /// Growth exponent for dot radius vs. projection scale. 1.0 holds texture density
-    /// exactly constant but reads a touch heavy on very wide screens; 0.75 lets the
+    /// exactly constant but reads a touch heavy on very wide screens; 0.70 lets the
     /// terrain breathe a little more per pixel while still restoring the ridge. Only
     /// matters above the reference resolution — at/below it `dotScale` is pinned to 1.
-    private static let dotGrowthExponent = 0.75
+    private static let dotGrowthExponent = 0.70
 
     init(palette: Palette, animateWalkers: Bool = true) {
         self.palette = palette
