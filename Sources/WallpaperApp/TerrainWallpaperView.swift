@@ -34,9 +34,11 @@ final class TerrainWallpaperView: NSView {
         didSet { applyFrameRate() }
     }
 
-    init(frame: NSRect, palette: Palette, showWalkers: Bool) {
+    init(frame: NSRect, palette: Palette, showWalkers: Bool,
+         lightingEnabled: Bool, zoomOut: Double) {
         self.renderer = TerrainRenderer(palette: palette, animateWalkers: showWalkers)
-        renderer.lightingEnabled = true   // moving sun/moon shading + backface culling
+        renderer.lightingEnabled = lightingEnabled   // Eye-Dome Lighting shape cue
+        renderer.zoomOut = zoomOut
         super.init(frame: frame)
         wantsLayer = true
         layer?.isOpaque = true
@@ -57,6 +59,19 @@ final class TerrainWallpaperView: NSView {
     }
 
     func setShowWalkers(_ on: Bool) { renderer.setAnimateWalkers(on) }
+
+    /// Toggle Eye-Dome Lighting live. Redraw immediately even if paused so the change
+    /// shows without waiting for the next tick.
+    func setLightingEnabled(_ on: Bool) {
+        renderer.lightingEnabled = on
+        setNeedsDisplay(bounds)
+    }
+
+    /// Set the camera pull-back live. Same immediate-redraw treatment as above.
+    func setZoomOut(_ z: Double) {
+        renderer.zoomOut = z
+        setNeedsDisplay(bounds)
+    }
 
     /// Set the bottom-left signature line. Pass nil or "" to hide it.
     func setFooter(_ text: String?) {

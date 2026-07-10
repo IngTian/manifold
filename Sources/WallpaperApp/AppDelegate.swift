@@ -80,6 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
                 win.pin(to: screen)
                 view.frame = win.contentLayoutRect
                 view.setPalette(palette, animated: false)
+                view.setLightingEnabled(settings.lightingEnabled)
+                view.setZoomOut(settings.zoomLevel)
                 view.setFooter(currentFooter())
                 continue
             }
@@ -87,7 +89,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
             let win = WallpaperWindow(screen: screen)
             let view = TerrainWallpaperView(frame: NSRect(origin: .zero, size: screen.frame.size),
                                             palette: palette,
-                                            showWalkers: settings.showWalkers)
+                                            showWalkers: settings.showWalkers,
+                                            lightingEnabled: settings.lightingEnabled,
+                                            zoomOut: settings.zoomLevel)
             // Start at the governor's current rate, not the 30fps default — else a
             // display hot-plugged while on battery would animate at 30 not 15.
             view.maxFPS = governor.preferredFPS
@@ -123,11 +127,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
     // MARK: Theme
 
     /// The palette for the current setting; Auto follows the system appearance.
+    /// Both the preset (color scheme) and the light/dark mode feed into it.
     private func resolvedPalette() -> Palette {
+        let preset = settings.palettePreset
         switch settings.theme {
-        case .light: return .light
-        case .dark: return .dark
-        case .auto: return isSystemDark() ? .dark : .light
+        case .light: return preset.palette(dark: false)
+        case .dark: return preset.palette(dark: true)
+        case .auto: return preset.palette(dark: isSystemDark())
         }
     }
 
@@ -265,6 +271,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
 
         menu.addItem(.separator())
 
+        // Palette (color scheme) — a submenu of the bundled presets.
+        let paletteItem = NSMenuItem(title: "Palette", action: nil, keyEquivalent: "")
+        let paletteMenu = NSMenu()
+        for p in PalettePreset.allCases {
+            let mi = NSMenuItem(title: p.label, action: #selector(pickPalette(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.tag = p.rawValue
+            mi.state = (settings.palettePreset == p) ? .on : .off
+            paletteMenu.addItem(mi)
+        }
+        paletteItem.submenu = paletteMenu
+        menu.addItem(paletteItem)
+
+        // Eye-Dome Lighting — the shape cue that makes the terrain read as 3D.
+        let lighting = NSMenuItem(title: "Shape lighting", action: #selector(toggleLighting), keyEquivalent: "")
+        lighting.target = self
+        lighting.state = settings.lightingEnabled ? .on : .off
+        menu.addItem(lighting)
+
+        // Zoom — a menu can't host a slider, so offer discrete steps.
+        let zoomItem = NSMenuItem(title: "Zoom", action: nil, keyEquivalent: "")
+        let zoomMenu = NSMenu()
+        for step in Self.zoomSteps {
+            let mi = NSMenuItem(title: step.label, action: #selector(pickZoom(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.tag = step.tag
+            mi.state = (abs(settings.zoomLevel - step.value) < 0.001) ? .on : .off
+            zoomMenu.addItem(mi)
+        }
+        zoomItem.submenu = zoomMenu
+        menu.addItem(zoomItem)
+
+        menu.addItem(.separator())
+
         let walkers = NSMenuItem(title: "Walker particles", action: #selector(toggleWalkers), keyEquivalent: "")
         walkers.target = self
         walkers.state = settings.showWalkers ? .on : .off
@@ -302,10 +342,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
 
     private func refreshMenu() { statusItem?.menu = buildMenu() }
 
+    /// Discrete zoom choices for the menu (a menu can't host a slider). `value` is the
+    /// renderer's `zoomOut`, a world→screen scale multiplier: LARGER = terrain drawn
+    /// bigger = zoomed IN (less footprint); SMALLER = terrain smaller = more footprint
+    /// visible (zoomed out). 0.85 is the tuned default. Listed widest → closest.
+    private static let zoomSteps: [(tag: Int, value: Double, label: String)] = [
+        (0, 0.70, "Wide"),
+        (1, 0.85, "Default"),
+        (2, 1.00, "Close"),
+        (3, 1.15, "Closest"),
+    ]
+
     @objc private func pickTheme(_ sender: NSMenuItem) {
         guard let t = WallpaperTheme(rawValue: sender.tag) else { return }
         settings.theme = t
         applyTheme(animated: true)
+        refreshMenu()
+    }
+
+    @objc private func pickPalette(_ sender: NSMenuItem) {
+        guard let p = PalettePreset(rawValue: sender.tag) else { return }
+        settings.palettePreset = p
+        applyTheme(animated: true)   // resolvedPalette() now folds in the preset
+        refreshMenu()
+    }
+
+    @objc private func toggleLighting() {
+        settings.lightingEnabled.toggle()
+        for v in views.values { v.setLightingEnabled(settings.lightingEnabled) }
+        refreshMenu()
+    }
+
+    @objc private func pickZoom(_ sender: NSMenuItem) {
+        guard let step = Self.zoomSteps.first(where: { $0.tag == sender.tag }) else { return }
+        settings.zoomLevel = step.value
+        for v in views.values { v.setZoomOut(step.value) }
         refreshMenu()
     }
 

@@ -123,10 +123,11 @@ struct Projector {
     /// `zoomOut` pulls the camera back a touch so more of the terrain's footprint is
     /// visible (its corners otherwise clip off the sides). Uniform, so it never
     /// distorts; it flows into project() AND the renderer's dotScale/EDL-radius, which
-    /// all derive from this, keeping the pointillist texture consistent.
-    private static let zoomOut = 0.85
+    /// all derive from this, keeping the pointillist texture consistent. Settable so
+    /// the user can tune how much terrain is shown (default 0.85).
+    var zoomOut = 0.85
     func scale(width r: Double, height c: Double) -> Double {
-        max(min(r, c), r * 0.46) * 0.34 * Projector.zoomOut
+        max(min(r, c), r * 0.46) * 0.34 * zoomOut
     }
 
     func project(_ n: Double, _ e: Double, _ z: Double, width r: Double, height c: Double)
@@ -182,7 +183,7 @@ private final class Walker {
 /// Renders the terrain scene into a Y-DOWN Core Graphics context.
 final class TerrainRenderer {
     private let field = TerrainField()
-    private let projector = Projector()
+    private var projector = Projector()
     private let grid: [GridPoint]
 
     private var palette: Palette
@@ -255,6 +256,15 @@ final class TerrainRenderer {
 
     /// Master switch. Off ⇒ no shading, no backface fade (unchanged look).
     var lightingEnabled = false
+
+    /// Camera pull-back. Forwarded to the projector; larger shows more terrain.
+    /// EDL is precomputed in the projector's pre-scale `raw()` space (which `zoomOut`
+    /// doesn't touch), so changing this never invalidates the baked EDL shade — a
+    /// uniform zoom that leaves the pointillist texture and shape cue intact.
+    var zoomOut: Double {
+        get { projector.zoomOut }
+        set { projector.zoomOut = newValue }
+    }
 
     // Fixed light direction (unit, world x=n,y=e,z=up). Mostly overhead, tipped
     // slightly toward the viewer/left so the relief has a consistent, readable
@@ -400,8 +410,10 @@ final class TerrainRenderer {
     /// shown, a smooth cross-fade begins (animated over `fadeDuration`). Pushing the
     /// same identity every frame is a no-op, so callers can call this each frame.
     func setPalette(_ p: Palette) {
-        // Ignore repeats of the identity we're already showing/targeting.
-        if p.id == palette.id { return }
+        // Ignore repeats of the identity we're already showing/targeting. The key is
+        // (mode, preset) so switching *preset* within the same light/dark mode still
+        // cross-fades, while pushing the identical palette every frame stays a no-op.
+        if p.id == palette.id && p.presetTag == palette.presetTag { return }
         // Begin (or redirect) a fade from whatever is on screen right now.
         fadeFrom = effectivePalette(atMs: lastNowMs)
         fadeStartMs = lastNowMs

@@ -28,6 +28,11 @@ struct RGB {
         self.b = b255 / 255.0
     }
 
+    /// Build from a packed 0xRRGGBB literal — the concise form the palette presets use.
+    init(hex v: UInt32) {
+        self.init(CGFloat((v >> 16) & 0xff), CGFloat((v >> 8) & 0xff), CGFloat(v & 0xff))
+    }
+
     /// Build directly from already-normalized (0…1) components — used for blending.
     init(rNorm: CGFloat, gNorm: CGFloat, bNorm: CGFloat) {
         self.r = rNorm
@@ -73,7 +78,11 @@ enum PaletteID {
 
 /// All theme-dependent color choices for one mode.
 struct Palette {
-    let id: PaletteID              // identity for fade de-duplication
+    let id: PaletteID              // light/dark/custom — identity for fade de-duplication
+    /// Which `PalettePreset` this came from (its rawValue; 0 = Classic). Part of the
+    /// fade-dedup key alongside `id`, so switching *preset* while staying in the same
+    /// light/dark mode still triggers a cross-fade instead of being treated as a repeat.
+    var presetTag: Int = 0
     let sky: [GradientStop]        // the full-page "descent" background gradient
     let ramp: ElevationRamp        // terrain dot colors by elevation
     let walker: WalkerColors       // walker glow / settled / trail
@@ -210,4 +219,87 @@ struct Palette {
         let b = CGFloat(v & 0xff) / 255.0
         return (r, g, b)
     }
+
+    // MARK: Preset construction
+
+    /// Build one mode of a preset from compact packed-hex specs. Keeps the preset
+    /// table below terse and uniform (sky stops + the three ramp anchors + walker
+    /// trio + clock pair), while producing exactly the same `Palette` shape the
+    /// renderer already consumes. `tag` is the owning preset's rawValue.
+    static func make(id: PaletteID, tag: Int,
+                     sky: [(CGFloat, UInt32)],
+                     valley: UInt32, mid: UInt32, peak: UInt32,
+                     glow: UInt32, settled: UInt32, trail: UInt32,
+                     clockInk ink: UInt32, clockShadow shadow: UInt32) -> Palette {
+        Palette(
+            id: id, presetTag: tag,
+            sky: sky.map { GradientStop(location: $0.0, rgb: hex($0.1)) },
+            ramp: ElevationRamp(valley: RGB(hex: valley), mid: RGB(hex: mid), peak: RGB(hex: peak)),
+            walker: WalkerColors(glow: RGB(hex: glow), settled: RGB(hex: settled), trail: RGB(hex: trail)),
+            clockInk: RGB(hex: ink), clockShadow: RGB(hex: shadow))
+    }
+}
+
+/// A bundled color scheme the user can pick. Each preset owns a light and a dark
+/// `Palette`; the theme setting (auto/light/dark) still selects *within* the preset,
+/// so a preset is a full re-skin of both modes at once.
+///
+/// `Classic` is the shipped ingtian.github.io look (its palettes live on
+/// `Palette.light`/`.dark`, kept there verbatim with their provenance comments). The
+/// others were designed for Manifold and dialed in against the real terrain + EDL in
+/// tools/palette-preview.html. Add a case here and it flows automatically into both
+/// config UIs (they enumerate `allCases`) and the persisted setting (rawValue).
+enum PalettePreset: Int, CaseIterable {
+    case classic = 0
+    case nordicSlate = 1
+    case sumiInk = 2
+
+    /// Menu / popup label.
+    var label: String {
+        switch self {
+        case .classic:     return "Classic"
+        case .nordicSlate: return "Nordic Slate"
+        case .sumiInk:     return "Sumi-e Ink"
+        }
+    }
+
+    /// The palette for a given light/dark mode.
+    func palette(dark: Bool) -> Palette {
+        switch self {
+        case .classic:
+            return dark ? .dark : .light
+        case .nordicSlate:
+            return dark ? Self.nordicDark : Self.nordicLight
+        case .sumiInk:
+            return dark ? Self.sumiDark : Self.sumiLight
+        }
+    }
+
+    // MARK: Nordic Slate & Fog — cool blue-gray, architectural calm.
+    private static let nordicDark = Palette.make(
+        id: .dark, tag: PalettePreset.nordicSlate.rawValue,
+        sky: [(0, 0x1c242c), (0.25, 0x171e25), (0.5, 0x12181e), (0.75, 0x0d1217), (1, 0x090c10)],
+        valley: 0x455a68, mid: 0x6f8b9b, peak: 0xc3d6df,
+        glow: 0xe7eff3, settled: 0x90a6b2, trail: 0x5c7482,
+        clockInk: 0xd9e2e7, clockShadow: 0x090c10)
+    private static let nordicLight = Palette.make(
+        id: .light, tag: PalettePreset.nordicSlate.rawValue,
+        sky: [(0, 0xeef1f3), (0.28, 0xe2e7ea), (0.55, 0xd1dae0), (0.8, 0xc2ced5), (1, 0xb4c1c9)],
+        valley: 0x37444f, mid: 0x516470, peak: 0x647685,   // peak darkened from #728794 for fog headroom
+        glow: 0xf5f8f9, settled: 0x5a6e7b, trail: 0x7f909c,
+        clockInk: 0x1e2830, clockShadow: 0xeef1f3)
+
+    // MARK: Sumi-e Ink Wash — near-neutral graphite, maximal restraint.
+    private static let sumiDark = Palette.make(
+        id: .dark, tag: PalettePreset.sumiInk.rawValue,
+        sky: [(0, 0x1a1d22), (0.2, 0x16191e), (0.4, 0x111318), (0.6, 0x0c0e12), (0.8, 0x08090c), (1, 0x050506)],
+        valley: 0x575d67, mid: 0x858c97, peak: 0xc6ccd5,
+        glow: 0xeceff3, settled: 0xaab0bb, trail: 0x686e77,
+        clockInk: 0xdadde2, clockShadow: 0x050506)
+    private static let sumiLight = Palette.make(
+        id: .light, tag: PalettePreset.sumiInk.rawValue,
+        sky: [(0, 0xf7f6f2), (0.22, 0xf2f1ee), (0.45, 0xececeb), (0.68, 0xe2e3e6), (0.86, 0xd7d9de), (1, 0xcbced5)],
+        valley: 0x7f838c, mid: 0x5d626b, peak: 0x31353d,   // valley darkened from #8b8f96 for ink on paper
+        glow: 0xfcfcfb, settled: 0x474c55, trail: 0x9a9fa8,
+        clockInk: 0x23262c, clockShadow: 0xf7f6f2)
 }
