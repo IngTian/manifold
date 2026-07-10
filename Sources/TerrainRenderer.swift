@@ -123,14 +123,6 @@ struct Projector {
         max(min(r, c), r * 0.46) * 0.34
     }
 
-    /// Unit vector pointing from the surface toward the camera, in world (n,e,z)
-    /// space. The depth axis is w = (n·st + e·nt)·ct + z·ot; the camera looks along
-    /// −w, so the surface→camera direction is −(st·ct, nt·ct, ot) — already unit
-    /// length (st²ct²+nt²ct²+ot² = ct²+ot² = 1). A surface patch is front-facing
-    /// (visible) when its normal N satisfies N·V > 0; the far slope of each ridge
-    /// (N·V < 0) is the hidden backface that otherwise shows through the mountain.
-    var viewDir: (Double, Double, Double) { (-st * ct, -nt * ct, -ot) }
-
     func project(_ n: Double, _ e: Double, _ z: Double, width r: Double, height c: Double)
         -> (x: Double, y: Double, depth: Double)
     {
@@ -140,6 +132,19 @@ struct Projector {
         let w = d * ct + z * ot
         let f = scale(width: r, height: c)
         return (r * 0.5 + i * f, c * 0.46 - u * f, w)
+    }
+
+    /// Resolution-independent projected coords (pre scale+offset): screen X-axis,
+    /// screen Y-axis (u; larger = higher on screen), and depth (larger = nearer).
+    /// project() is just a uniform scale+translate of (i, u), so screen-space NEIGHBOR
+    /// relationships are identical at every resolution — which lets Eye-Dome Lighting
+    /// be precomputed once here and reused at any viewport size.
+    func raw(_ n: Double, _ e: Double, _ z: Double) -> (ix: Double, uy: Double, depth: Double) {
+        let i = n * nt - e * st
+        let d = n * st + e * nt
+        let u = d * ot - z * ct
+        let w = d * ct + z * ot
+        return (i, u, w)
     }
 }
 
@@ -153,6 +158,7 @@ private struct GridPoint {
     let nx: Double  // unit surface normal in world (x, y, elevation) space, z-up
     let ny: Double
     let nz: Double
+    var edl: Double // Eye-Dome-Lighting shade in [0,1] (1 = unshaded), precomputed
 }
 
 /// A live walker particle.
@@ -262,20 +268,31 @@ final class TerrainRenderer {
     // darkness so it adapts continuously across the theme cross-fade.
     private static let lightValueLight = 0.62     // shadow-darkening weight in light theme
     private static let lightGainDark   = 0.95     // lit-brightening weight in dark theme
-    // Backface DIM: the far (away-facing) slope of the ridge draws the same colors as
-    // the near slope, so front and back mush together and depth is unreadable. We
-    // detect away-facing dots (N·V < 0) and make them RECEDE — dim their opacity to a
-    // floor AND desaturate toward a neutral gray — so the near face reads bright and
-    // the back falls away. This is the dominant front/back cue for a single ridge; a
-    // soft band around the silhouette (N·V ≈ 0) keeps the transition from hard-edging.
+
+    // MARK: Eye-Dome Lighting (the shape cue that actually works on a sparse cloud)
     //
-    // (A full floating-horizon / ray-occlusion pass would also catch one bump hidden
-    // behind another, but for this single-dominant-ridge field the N·V test is
-    // visually equivalent and far simpler — one dot product, precomputable.)
-    private static let backWidth       = 0.25     // half-width of the soft silhouette band (in N·V)
-    private static let backFloor       = 0.18     // opacity kept on the fully back-facing slope
-    private static let backDesat       = 0.7      // how far hidden dots lerp toward gray
-    private static let backGray        = RGB(90, 96, 104)  // neutral recede color
+    // Per-dot Lambert / N·V shading only weakly convey shape here because the ridge
+    // sits at middle depth AND middle facing. Eye-Dome Lighting sidesteps that: it
+    // darkens a dot when its SCREEN neighbors are NEARER than it — i.e. it detects
+    // depth discontinuities and manufactures the silhouette / ridge-seam edges the
+    // sparse point cloud can't otherwise produce. It's orientation-independent, so it
+    // works exactly where the facing-based cues failed. (This is what Potree /
+    // CloudCompare use to make un-meshed point clouds read as 3D.)
+    //
+    // Because the camera is fixed and the terrain static, the whole EDL shade is
+    // PRECOMPUTED once per grid point (in resolution-independent raw-projected space)
+    // and stored on GridPoint.edl — zero per-frame cost. Coupled to dot area (∝r²) so
+    // the cue amplifies super-linearly rather than reading as a subtle value change.
+    // Values below dialed in interactively in tools/terrain-explorer.html against the
+    // real terrain (breathing on, dots-only): they make the ridge read clearly while
+    // the valley recedes, staying calm & pointillist.
+    private static let edlNeighborRadius = 0.53    // neighbor gather radius in raw-projected units (≈100px in the explorer)
+    private static let edlStrength       = 2.0     // response→shade falloff (higher = harder edges)
+    private static let edlFloor          = 0.20    // darkest an EDL-shadowed dot's opacity goes
+    private static let edlSizeRange      = 0.75    // dot area spread: lit dots grow, shadowed shrink
+    // Elevation emphasis: a small extra boost to the high ground (the mountain IS the
+    // high dots), diminishing the valley. Complements EDL; kept gentle.
+    private static let elevEmphasis      = 0.20    // 0 = off; valley dots fade toward (1-this) opacity
 
     /// A 0…1 "darkness" for the active palette (0 = light theme, 1 = dark), from the
     /// top sky color's luminance. Drives the light/dark blend of the shading so it
@@ -322,12 +339,55 @@ final class TerrainRenderer {
                 let (gx, gy) = f.gradient(a, h)
                 let inv = 1.0 / (gx * gx + gy * gy + 1.0).squareRoot()
                 pts.append(GridPoint(x: a, y: h, baseZ: f.elevation(a, h),
-                                     nx: -gx * inv, ny: -gy * inv, nz: inv))
+                                     nx: -gx * inv, ny: -gy * inv, nz: inv, edl: 1))
                 h += f.V
             }
             a += f.V
         }
+        Self.computeEDL(&pts, projector: projector)
         self.grid = pts
+    }
+
+    /// Precompute the Eye-Dome-Lighting shade for every grid point (once; the camera
+    /// is fixed and the terrain static). For each dot, gather its screen-space
+    /// neighbors and measure how much NEARER they are; a dot that sits behind nearer
+    /// terrain gets a large response → darker shade. Works in raw-projected space so
+    /// the result is resolution-independent. O(n²) over ~1089 pts ≈ 1.2M ops, one time.
+    private static func computeEDL(_ pts: inout [GridPoint], projector: Projector) {
+        let n = pts.count
+        var ix = [Double](repeating: 0, count: n)
+        var uy = [Double](repeating: 0, count: n)
+        var dp = [Double](repeating: 0, count: n)
+        for i in 0..<n {
+            let r = projector.raw(pts[i].x, pts[i].y, pts[i].baseZ)
+            ix[i] = r.ix; uy[i] = r.uy; dp[i] = r.depth
+        }
+        let r2 = edlNeighborRadius * edlNeighborRadius
+        var response = [Double](repeating: 0, count: n)
+        for i in 0..<n {
+            var sum = 0.0, cnt = 0.0
+            for j in 0..<n where j != i {
+                let dx = ix[j] - ix[i], dy = uy[j] - uy[i]
+                if dx * dx + dy * dy > r2 { continue }
+                cnt += 1
+                // depth larger = NEARER. A dot RECEDES (→ darken) when its neighbors
+                // are FARTHER, i.e. dp[j] < dp[i] → (dp[i] - dp[j]) > 0. This keeps
+                // near/high ridge dots bright and dims the receding valley — the
+                // opposite sign wrongly shrinks the hilltops.
+                let recede = dp[i] - dp[j]
+                if recede > 0 { sum += recede }
+            }
+            response[i] = cnt > 0 ? sum / cnt : 0
+        }
+        // Normalize by a high percentile of the responses: the raw response is very
+        // skewed (a few silhouette dots dominate), so a fixed strength either barely
+        // touches the bulk or nukes the tail. Dividing by ~p80 spreads the shading
+        // across the whole field so the relief reads evenly, not just at hard edges.
+        let sorted = response.sorted()
+        let ref = max(1e-6, sorted[Int(0.80 * Double(n - 1))])
+        for i in 0..<n {
+            pts[i].edl = exp(-(response[i] / ref) * edlStrength)  // 1 = unshaded … →0 occluded
+        }
     }
 
     /// Set the target palette. If its theme identity differs from what's currently
@@ -408,11 +468,10 @@ final class TerrainRenderer {
         // Computed once per frame; only consulted when lightingEnabled (else the dot
         // loop takes the exact original unlit path).
         let lit = lightingEnabled
-        let (Lx, Ly, Lz) = Self.lightDir      // fixed overhead sun
-        let (Vx, Vy, Vz) = projector.viewDir  // for backface culling
+        let (Lx, Ly, Lz) = Self.lightDir      // fixed overhead sun (for gentle warm/cool tint)
 
         // Project every grid point (with breathing), collect for depth sorting.
-        struct Dot { let sx: Double; let sy: Double; let depth: Double; let z: Double; let ndl: Double; let ndv: Double }
+        struct Dot { let sx: Double; let sy: Double; let depth: Double; let z: Double; let ndl: Double; let edl: Double }
         var dots: [Dot] = []
         dots.reserveCapacity(grid.count)
         for g in grid {
@@ -420,8 +479,7 @@ final class TerrainRenderer {
             z += breathAmp * sin(x * breathFreq + g.x * 0.7 + g.y * 0.6)
             let p = projector.project(g.x, g.y, z, width: width, height: height)
             let ndl = lit ? (g.nx * Lx + g.ny * Ly + g.nz * Lz) : 0  // N·L, half-Lambert input
-            let ndv = lit ? (g.nx * Vx + g.ny * Vy + g.nz * Vz) : 0  // N·V, >0 front / <0 hidden
-            dots.append(Dot(sx: p.x, sy: p.y, depth: p.depth, z: z, ndl: ndl, ndv: ndv))
+            dots.append(Dot(sx: p.x, sy: p.y, depth: p.depth, z: z, ndl: ndl, edl: g.edl))
         }
         // Painter's order: far (small depth) first.
         dots.sort { $0.depth < $1.depth }
@@ -432,22 +490,29 @@ final class TerrainRenderer {
                 continue
             }
             let l = max(0.0, min(1.0, (dot.z + J) / (2 * J)))
-            let radius = (2.9 - l * 1.6) * dotScale
+            var radius = (2.9 - l * 1.6) * dotScale
             var opacity = 0.3 + (1 - l) * 0.45
             if dot.sy > bottomFade {
                 opacity *= max(0.0, 1 - (dot.sy - bottomFade) / (height - bottomFade))
             }
-            var color = lit ? litColor(elevationColor(l), ndl: dot.ndl) : elevationColor(l)
+            let color = lit ? litColor(elevationColor(l), ndl: dot.ndl) : elevationColor(l)
             if lit {
-                // Backface dim + desaturate: as N·V goes from front (+) through the
-                // silhouette (0) to back (−), fade opacity toward backFloor and lerp
-                // color toward gray, so the far slope recedes and depth reads.
-                //   front (tt→1): full opacity, full color.
-                //   back  (tt→0): opacity·backFloor, color lerped `backDesat` to gray.
-                let tt = max(0.0, min(1.0, (dot.ndv + Self.backWidth) / (2 * Self.backWidth)))
-                let s = tt * tt * (3 - 2 * tt)                    // smoothstep 0→1
-                opacity *= Self.backFloor + (1 - Self.backFloor) * s
-                color = RGB.lerp(Self.backGray, color, CGFloat(1 - Self.backDesat * (1 - s)))
+                // Eye-Dome Lighting: a dot whose neighbors are NEARER is receding
+                // (edl→0) — dim its opacity toward the floor AND shrink its area, while
+                // near/high ridge dots (edl→1) stay bright and grow. This manufactures
+                // the depth-discontinuity edges the sparse cloud lacks. Size coupling is
+                // centered on 1× (sh=0.5 ⇒ unchanged) so mean dot size is preserved.
+                let sh = dot.edl
+                opacity *= Self.edlFloor + (1 - Self.edlFloor) * sh
+                radius *= 1 + Self.edlSizeRange * (sh - 0.5)
+
+                // Elevation emphasis: the mountain IS the high ground — diminish the
+                // valley (l→0) toward (1−emphasis) opacity and shrink it, so the ridge
+                // (l→1) carries the form. (Counters the faithful curves, which happen
+                // to make valley dots bigger/brighter.)
+                let e = Self.elevEmphasis
+                opacity *= 1 - e * (1 - l)
+                radius  *= (1 - e * 0.5) + (e * 0.5) * l
             }
             if opacity <= 0.004 { continue }
 

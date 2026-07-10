@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manifold — Terrain Explorer</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #0b0d10; color: #cdd3da;
+    font: 13px/1.5 -apple-system, "SF Pro Text", system-ui, sans-serif; overflow: hidden; }
+  #c { display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: none; }
+  #c:active { cursor: grabbing; }
+  .panel { position: fixed; top: 14px; left: 14px; background: rgba(18,22,28,.82);
+    backdrop-filter: blur(8px); border: 1px solid #232a33; border-radius: 10px;
+    padding: 12px 14px; max-width: 300px; user-select: none; }
+  .panel h1 { font-size: 13px; margin: 0 0 8px; font-weight: 600; letter-spacing: .02em; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .row label { flex: 0 0 96px; color: #8b95a1; }
+  .row input[type=range] { flex: 1; }
+  .row .val { flex: 0 0 54px; text-align: right; font-variant-numeric: tabular-nums; color: #e6ebf1; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  button { background: #1d2530; color: #cdd3da; border: 1px solid #2b3542; border-radius: 7px;
+    padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover { background: #263042; }
+  button.on { background: #2f6feb; border-color: #2f6feb; color: #fff; }
+  .hud { position: fixed; bottom: 14px; left: 14px; background: rgba(18,22,28,.82);
+    border: 1px solid #232a33; border-radius: 10px; padding: 10px 14px;
+    font-variant-numeric: tabular-nums; color: #9aa4b0; }
+  .hud b { color: #e6ebf1; font-weight: 600; }
+  .hint { position: fixed; bottom: 14px; right: 14px; color: #5b6673; text-align: right; }
+  .toggles { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="panel">
+  <h1>⛰ Manifold — Terrain Explorer</h1>
+  <div class="row"><label>Elevation ×</label><input id="uScale" type="range" min="0" max="3" step="0.05" value="1"><span class="val" id="uScaleV"></span></div>
+  <div class="row"><label>Grid step</label><input id="gridStep" type="range" min="0.06" max="0.3" step="0.01" value="0.16"><span class="val" id="gridStepV"></span></div>
+  <div class="row"><label>Dot size</label><input id="dotSize" type="range" min="1" max="6" step="0.5" value="2.5"><span class="val" id="dotSizeV"></span></div>
+  <div class="toggles">
+    <button id="tMesh">Wireframe</button>
+    <button id="tDots" class="on">Dots</button>
+    <button id="tShade">Shade by height</button>
+    <button id="tDist">Color by distance</button>
+    <button id="tAxes" class="on">Axes</button>
+    <button id="tBack">Mark back-faces</button>
+  </div>
+  <div class="toggles" style="margin-top:8px">
+    <button id="tJitter">Jitter (de-grid)</button>
+    <button id="tEdl">Eye-Dome Lighting</button>
+    <button id="tEdlInv">EDL invert</button>
+  </div>
+  <div class="row"><label>EDL radius</label><input id="edlRadius" type="range" min="20" max="160" step="5" value="70"><span class="val" id="edlRadiusV"></span></div>
+  <div class="row"><label>EDL strength</label><input id="edlStrength" type="range" min="0.1" max="3" step="0.1" value="0.9"><span class="val" id="edlStrengthV"></span></div>
+  <div class="row"><label>EDL floor</label><input id="edlFloor" type="range" min="0" max="0.6" step="0.02" value="0.12"><span class="val" id="edlFloorV"></span></div>
+  <div class="row"><label>EDL size var</label><input id="edlSize" type="range" min="0" max="1.5" step="0.05" value="0.6"><span class="val" id="edlSizeV"></span></div>
+  <div class="row"><label>Elev emphasis</label><input id="elevEmph" type="range" min="0" max="1" step="0.05" value="0"><span class="val" id="elevEmphV"></span></div>
+  <div class="btns">
+    <button id="snap">Snap to screensaver view</button>
+    <button id="top">Top-down</button>
+    <button id="side">Side-on</button>
+    <button id="spin">Auto-spin</button>
+    <button id="breathe">Breathe</button>
+  </div>
+</div>
+
+<div class="hud" id="hud"></div>
+<div class="hint">drag = orbit · scroll = zoom · right-drag = pan</div>
+
+<script>
+// ---- The EXACT terrain field from Sources/TerrainRenderer.swift ----
+const BUMPS = [
+  {a:-1.0,  cx:-1.4, cy:-0.5, s:0.9},
+  {a:-0.65, cx: 1.5, cy: 0.7, s:0.8},
+  {a:-0.5,  cx: 0.3, cy:-1.3, s:0.7},
+  {a: 0.7,  cx:-0.2, cy: 0.9, s:1.0},
+  {a: 0.45, cx: 1.0, cy:-0.6, s:0.7},
+];
+const U = 1.7, N = 2.6;               // elevation scale, grid half-extent
+// The screensaver's fixed projection angles:
+const SAVER_YAW = Math.PI * 0.18;     // it
+const SAVER_TILT = 0.92;              // dt  (camera 37.3° above horizontal)
+
+function elevation(x, y, uScale) {
+  let t = 0;
+  for (const r of BUMPS) {
+    const dx = x - r.cx, dy = y - r.cy;
+    t += r.a * Math.exp(-(dx*dx + dy*dy) / (2*r.s*r.s));
+  }
+  return t * U * uScale;
+}
+function gradient(x, y, uScale) {
+  let gx = 0, gy = 0;
+  for (const r of BUMPS) {
+    const dx = x - r.cx, dy = y - r.cy;
+    const e = r.a * Math.exp(-(dx*dx + dy*dy) / (2*r.s*r.s));
+    gx += e * (-dx/(r.s*r.s));
+    gy += e * (-dy/(r.s*r.s));
+  }
+  return [gx*U*uScale, gy*U*uScale];
+}
+
+// ---- Camera: orbit around the terrain centroid ----
+const cam = { yaw: SAVER_YAW, pitch: SAVER_TILT, dist: 9, panX: 0, panY: 0 };
+let spinning = false;
+let breatheClock = 0;
+let animating = false;
+
+// Build grid of samples at a given step.
+function buildGrid(step, uScale) {
+  const pts = [];
+  const rows = [];
+  // deterministic hash → [-1,1] for fixed blue-noise-ish jitter
+  const hash = (i, j) => { let s = Math.sin(i*127.1 + j*311.7) * 43758.5453; return (s - Math.floor(s))*2 - 1; };
+  let ii = 0;
+  for (let a = -N; a <= N + 1e-9; a += step) {
+    const rowIdx = [];
+    let jj = 0;
+    for (let h = -N; h <= N + 1e-9; h += step) {
+      // Fixed jitter (rank 4): break the rigid lattice that reads as flat.
+      const jx = opt.jitter ? hash(ii, jj) * step * 0.42 : 0;
+      const jy = opt.jitter ? hash(jj, ii) * step * 0.42 : 0;
+      const ax = a + jx, hy = h + jy;
+      const z = elevation(ax, hy, uScale);
+      const [fx, fy] = gradient(ax, hy, uScale);
+      const inv = 1/Math.hypot(fx, fy, 1);
+      rowIdx.push(pts.length);
+      pts.push({x:ax, y:hy, z, nx:-fx*inv, ny:-fy*inv, nz:inv, shade:1});
+      jj++;
+    }
+    rows.push(rowIdx);
+    ii++;
+  }
+  return { pts, rows };
+}
+
+// World → camera → screen. Camera looks at origin; yaw about Z (up=elevation),
+// pitch tips down. Orthographic-ish with perspective by distance.
+function project(p, W, H) {
+  // translate to look-at (with pan)
+  let x = p.x - cam.panX, y = p.y - cam.panY, z = p.z;
+  // yaw about Z (up = elevation axis)
+  const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
+  let x1 = x*cy - y*sy, y1 = x*sy + y*cy, z1 = z;
+  // pitch about X': tips the view down. y2 = screen-vertical(before flip), z2 = depth.
+  const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  let x2 = x1;
+  let y2 = y1*cp - z1*sp;
+  let z2 = y1*sp + z1*cp;         // camera-space depth (larger = farther back)
+  // World→pixel: a generous base scale so the ±2.6 terrain fills the view, with a
+  // gentle perspective so nearer parts are a touch bigger. base scales with zoom.
+  const base = Math.min(W, H) * 0.16 * (9 / cam.dist);   // ~130px per world unit at default
+  const persp = 1 + z2 * 0.06;                            // mild; ~±15% across the field
+  const s = base / Math.max(0.3, persp);
+  const sx = W/2 + x2 * s;
+  const syy = H/2 - y2 * s;        // y2 up on screen
+  return { sx, sy: syy, depth: z2, camZ: z2 };
+}
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  W = canvas.clientWidth; H = canvas.clientHeight;
+  canvas.width = W*DPR; canvas.height = H*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize', () => { resize(); draw(); });
+resize();   // size the canvas BEFORE any draw() (bindRange below calls draw during setup)
+
+// UI state
+const opt = { mesh:false, dots:true, shade:false, dist:false, axes:true, back:false,
+              jitter:false, edl:false, breathe:false,
+              uScale:1, step:0.16, dotSize:2.5,
+              edlRadius:70, edlStrength:0.9, edlFloor:0.12, edlSize:0.6, elevEmph:0, edlInvert:false };
+let grid = buildGrid(opt.step, opt.uScale);
+
+function heightColor(z) {
+  // normalize by the field's rough z-range for a blue→teal→warm ramp
+  const l = Math.max(0, Math.min(1, (z + 1.55*opt.uScale) / (3.1*opt.uScale)));
+  // valley (blue-green) → mid (teal) → peak (warm)
+  const r = Math.round(70 + l*130), g = Math.round(120 + l*70), b = Math.round(140 - l*40);
+  return `rgb(${r},${g},${b})`;
+}
+
+function draw() {
+  if (!W || !H) return;                 // not sized yet — skip
+  ctx.clearRect(0,0,W,H);
+  // background
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#111417'); bg.addColorStop(1,'#08090b');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  // Breathing: match the real renderer exactly — z += 0.04*sin(t*0.4 + x*0.7 + y*0.6).
+  // Reuse each point but perturb z (and thus its projection) when "Breathe" is on.
+  const bt = breatheClock;
+  const P = grid.pts.map(p => {
+    if (!opt.breathe) return project(p, W, H);
+    const z = p.z + 0.04 * opt.uScale * Math.sin(bt*0.4 + p.x*0.7 + p.y*0.6);
+    return project({x:p.x, y:p.y, z}, W, H);
+  });
+
+  // ---- Eye-Dome Lighting (rank 1): darken a dot when its SCREEN neighbors are
+  // NEARER than it. Manufactures silhouette/ridge-seam edges the sparse cloud lacks;
+  // orientation-independent so it works where Lambert/N·V failed. depth larger=nearer.
+  // (Per-frame here in the explorer; in the real renderer the camera is fixed so this
+  // precomputes once.) k nearest screen neighbors, response = mean(max(0, nearerΔ)).
+  const edlShade = new Float64Array(P.length).fill(1);
+  if (opt.edl) {
+    const R = opt.edlRadius;          // screen radius (px) to gather neighbors
+    const R2 = R*R;
+    const resp = new Float64Array(P.length);
+    for (let i = 0; i < P.length; i++) {
+      let sum = 0, cnt = 0;
+      const pi = P[i];
+      for (let j = 0; j < P.length; j++) {
+        if (j === i) continue;
+        const dx = P[j].sx - pi.sx, dy = P[j].sy - pi.sy;
+        if (dx*dx + dy*dy > R2) continue;
+        cnt++;
+        // depth: larger = FARTHER here. A dot RECEDES (should darken) when its
+        // neighbors are NEARER, i.e. neighbor.depth < my.depth → (pi.depth - P[j].depth) > 0.
+        // edlInvert flips it so you can confirm the correct direction empirically.
+        let d = pi.depth - P[j].depth;          // >0 when neighbor is nearer than me
+        if (opt.edlInvert) d = -d;
+        if (d > 0) sum += d;
+      }
+      resp[i] = cnt > 0 ? sum / cnt : 0;
+    }
+    // Normalize by ~p80 so shading spreads across the field (raw response is skewed).
+    const sorted = Array.from(resp).sort((a,b)=>a-b);
+    const ref = Math.max(1e-6, sorted[Math.floor(0.80*(sorted.length-1))]);
+    for (let i = 0; i < P.length; i++) edlShade[i] = Math.exp(-(resp[i]/ref) * opt.edlStrength);
+  }
+
+  // Toward-camera direction in WORLD space (for back-face marking). The forward
+  // transform rotates yaw(Z) then pitch(X'); camera looks along +depth(z2), so the
+  // toward-camera world vector is the inverse rotation of (0,0,-1):
+  //   after un-pitch: (0, sp, -cp) ; after un-yaw about Z:
+  const cyw = Math.cos(cam.yaw), syw = Math.sin(cam.yaw);
+  const cpw = Math.cos(cam.pitch), spw = Math.sin(cam.pitch);
+  const vy1 = spw, vz1 = -cpw;             // (0, sp, -cp) in the yaw'd frame
+  const V = [ -vy1*syw, vy1*cyw, vz1 ];    // un-yaw (inverse Z-rotation)
+
+  // Axes
+  if (opt.axes) {
+    const O = project({x:0,y:0,z:0}, W, H);
+    const ax = [ [3,0,0,'#c0533f','x'], [0,3,0,'#4f9d5b','y'], [0,0,2.2,'#4a7dc0','z (elev)'] ];
+    ctx.lineWidth = 1.5; ctx.font = '11px system-ui';
+    for (const [x,y,z,col,lbl] of ax) {
+      const E = project({x,y,z}, W, H);
+      ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(O.sx,O.sy); ctx.lineTo(E.sx,E.sy); ctx.stroke();
+      ctx.fillStyle = col; ctx.fillText(lbl, E.sx+3, E.sy);
+    }
+  }
+
+  // Wireframe mesh (draw first, behind dots)
+  if (opt.mesh) {
+    ctx.strokeStyle = 'rgba(120,150,150,0.18)'; ctx.lineWidth = 1;
+    const rows = grid.rows;
+    ctx.beginPath();
+    for (let r=0; r<rows.length; r++) {
+      for (let c=0; c<rows[r].length; c++) {
+        const i = rows[r][c];
+        if (c+1 < rows[r].length) { const j = rows[r][c+1]; ctx.moveTo(P[i].sx,P[i].sy); ctx.lineTo(P[j].sx,P[j].sy); }
+        if (r+1 < rows.length)    { const j = rows[r+1][c]; ctx.moveTo(P[i].sx,P[i].sy); ctx.lineTo(P[j].sx,P[j].sy); }
+      }
+    }
+    ctx.stroke();
+  }
+
+  // Dots — painter's order (far first)
+  if (opt.dots) {
+    // depth range for the distance-coloring / depth-cue
+    let dLo = Infinity, dHi = -Infinity;
+    for (const q of P) { if (q.depth < dLo) dLo = q.depth; if (q.depth > dHi) dHi = q.depth; }
+    const dSpan = Math.max(1e-6, dHi - dLo);
+    const order = P.map((p,i)=>i).sort((a,b)=>P[b].depth - P[a].depth);
+    for (const i of order) {
+      const p = grid.pts[i], s = P[i];
+      // near(1) … far(0)   (depth larger = farther, so invert)
+      const near = 1 - (P[i].depth - dLo) / dSpan;
+      let col;
+      if (opt.dist) {
+        // Unmistakable distance ramp: NEAR = red, MID = green, FAR = blue.
+        const rr = Math.round(255 * near);
+        const gg = Math.round(255 * (1 - Math.abs(near - 0.5) * 2));
+        const bb = Math.round(255 * (1 - near));
+        col = `rgb(${rr},${gg},${bb})`;
+      } else if (opt.back) {
+        const ndv = p.nx*V[0] + p.ny*V[1] + p.nz*V[2];
+        col = ndv < 0 ? 'rgb(220,60,60)' : 'rgb(70,190,120)';
+      } else {
+        col = heightColor(p.z);
+      }
+      // Apply EDL shade to VALUE and (optionally) to dot AREA. edlSize controls how
+      // much size varies: 0 = all dots same size (dotSize), up = lit bigger/shadowed
+      // smaller. Centered on 1× so the mean dot size stays ≈ your dotSize slider.
+      const sh = edlShade[i];
+      let alpha = 1, r;
+      if (opt.edl) {
+        alpha = opt.edlFloor + (1 - opt.edlFloor) * sh;
+        r = opt.dotSize * (1 + opt.edlSize * (sh - 0.5));   // sh=0.5→1×, spread by edlSize
+      } else {
+        r = opt.dist ? opt.dotSize * (0.5 + 1.8*near) : opt.dotSize;
+      }
+      // Elevation emphasis: the MOUNTAIN is the high dots. Diminish the valley and
+      // boost the ridge. l=peak(1)…valley(0). emph=0 → no change; emph=1 → valley
+      // dots go to ~floor opacity & small, peaks full. This directly counters the
+      // faithful curves that (annoyingly) make valley dots bigger/brighter.
+      const l = Math.max(0, Math.min(1, (p.z + 1.55*opt.uScale) / (3.1*opt.uScale)));
+      if (opt.elevEmph > 0) {
+        const e = opt.elevEmph;
+        const w = 1 - e * (1 - l);          // 1 at peak → (1-e) at valley
+        alpha *= w;
+        r *= (1 - e*0.5) + (e*0.5) * l;     // shrink valley dots up to half
+      }
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(s.sx, s.sy, r, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // HUD
+  const elevDeg = (90 - cam.pitch*180/Math.PI);
+  document.getElementById('hud').innerHTML =
+    `yaw <b>${(cam.yaw*180/Math.PI).toFixed(0)}°</b> · ` +
+    `pitch(tilt) <b>${(cam.pitch*180/Math.PI).toFixed(0)}°</b> · ` +
+    `camera <b>${elevDeg.toFixed(0)}°</b> above ground · ` +
+    `zoom <b>${(9/cam.dist).toFixed(2)}×</b> · ` +
+    `${grid.pts.length} pts`;
+}
+
+// ---- Interaction ----
+let dragging = false, panning = false, lx=0, ly=0;
+canvas.addEventListener('pointerdown', e => {
+  dragging = e.button === 0; panning = e.button === 2;
+  lx = e.clientX; ly = e.clientY; canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!dragging && !panning) return;
+  const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
+  if (dragging) {
+    cam.yaw += dx * 0.008;
+    cam.pitch = Math.max(0.02, Math.min(Math.PI/2 - 0.02, cam.pitch + dy * 0.006));
+  } else if (panning) {
+    cam.panX -= dx * 0.01; cam.panY += dy * 0.01;
+  }
+  draw();
+});
+canvas.addEventListener('pointerup', () => { dragging = panning = false; });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  cam.dist = Math.max(3, Math.min(30, cam.dist * (1 + e.deltaY*0.001)));
+  draw();
+}, {passive:false});
+
+// ---- Controls ----
+function bindRange(id, key, fmt, rebuild) {
+  const el = document.getElementById(id), out = document.getElementById(id+'V');
+  const upd = () => { opt[key] = parseFloat(el.value); out.textContent = fmt(opt[key]);
+    if (rebuild) grid = buildGrid(opt.step, opt.uScale); draw(); };
+  el.addEventListener('input', upd); upd();
+}
+bindRange('uScale','uScale', v=>v.toFixed(2)+'×', true);
+bindRange('gridStep','step', v=>v.toFixed(2), true);
+bindRange('dotSize','dotSize', v=>v.toFixed(1), false);
+bindRange('edlRadius','edlRadius', v=>v.toFixed(0)+'px', false);
+bindRange('edlStrength','edlStrength', v=>v.toFixed(1), false);
+bindRange('edlFloor','edlFloor', v=>v.toFixed(2), false);
+bindRange('edlSize','edlSize', v=>v.toFixed(2), false);
+bindRange('elevEmph','elevEmph', v=>v.toFixed(2), false);
+
+function bindToggle(id, key) {
+  const el = document.getElementById(id);
+  el.addEventListener('click', () => { opt[key] = !opt[key]; el.classList.toggle('on', opt[key]);
+    console.log('toggle', key, '=', opt[key]); draw(); });
+}
+bindToggle('tMesh','mesh'); bindToggle('tDots','dots'); bindToggle('tShade','shade');
+bindToggle('tDist','dist'); bindToggle('tAxes','axes'); bindToggle('tBack','back');
+bindToggle('tEdl','edl'); bindToggle('tEdlInv','edlInvert');
+// jitter needs a grid rebuild
+document.getElementById('tJitter').addEventListener('click', e => {
+  opt.jitter = !opt.jitter; e.target.classList.toggle('on', opt.jitter);
+  grid = buildGrid(opt.step, opt.uScale); draw();
+});
+
+document.getElementById('snap').onclick = () => { cam.yaw=SAVER_YAW; cam.pitch=SAVER_TILT; cam.dist=9; cam.panX=cam.panY=0; draw(); };
+document.getElementById('top').onclick  = () => { cam.pitch = Math.PI/2 - 0.05; draw(); };
+document.getElementById('side').onclick = () => { cam.pitch = 0.08; draw(); };
+document.getElementById('spin').onclick = (e) => { spinning = !spinning; e.target.classList.toggle('on', spinning); ensureLoop(); };
+document.getElementById('breathe').onclick = (e) => { opt.breathe = !opt.breathe; e.target.classList.toggle('on', opt.breathe); ensureLoop(); if (!opt.breathe) draw(); };
+
+// One shared animation loop; runs while spinning OR breathing.
+function ensureLoop() {
+  if (animating) return;
+  if (!spinning && !opt.breathe) return;
+  animating = true;
+  requestAnimationFrame(loop);
+}
+function loop() {
+  if (!spinning && !opt.breathe) { animating = false; return; }
+  if (spinning) cam.yaw += 0.004;
+  if (opt.breathe) breatheClock += 0.05;   // ~ matches the real renderer's calm pace
+  draw();
+  requestAnimationFrame(loop);
+}
+
+resize(); draw();
+</script>
+</body>
+</html>
