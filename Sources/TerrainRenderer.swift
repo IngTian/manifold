@@ -187,16 +187,25 @@ final class TerrainRenderer {
     // MARK: Dot sizing across resolutions
     //
     // The dot/walker radii below were tuned against the demo render (1600×1000).
-    // Dot *positions* scale with the live projection scale, so on large / ultra-wide
-    // displays the terrain zooms up but fixed-size dots used to stay tiny — the ridge
-    // dissolved into sparse specks. We grow the radii with the projection scale so
-    // the pointillist texture (dot size vs. dot spacing) stays coherent at any
-    // resolution — a continuous function of the actual scale, never a per-resolution
-    // table. `dotScale` (in `render`) computes it.
+    // Dot *positions* scale with the live projection scale, so on bigger viewports
+    // the terrain zooms up but fixed-size dots used to stay tiny — the ridge
+    // dissolved into sparse specks (worst on ultra-wide, but present on any display
+    // whose projection scale exceeds the reference). We grow the radii with the
+    // projection scale so the pointillist texture (dot size vs. dot spacing) stays
+    // coherent at any resolution — a continuous function of the actual scale, never
+    // a per-resolution table. `dotScale` (in `render`) computes it.
+    //
+    // Threshold, in point space (what the view hands us): dots grow once the scale
+    // exceeds referenceScale, i.e. once min(width, height) > ~1000 pt. So a 13"/14"
+    // laptop at default scaling (≤1000 pt tall) is pinned to 1.0 and byte-for-byte
+    // unchanged, while a 16" MBP (1117 pt), a 1440p external, or a "More Space"
+    // scaled mode gets a modest, proportionate enlargement — the same fix, milder.
 
-    /// Resolution the base radii were tuned at — derived from the projector itself
-    /// (not a hardcoded number) so it tracks any future change to the projection
-    /// constants. This is `Projector.scale(1600×1000)` == 340.
+    /// Resolution the base radii were tuned at. Derived from the projector so it
+    /// stays the true `dotScale == 1` pivot if the reference render size changes.
+    /// This is `Projector.scale(1600×1000)` == 340. (Note the projector's uniform
+    /// 0.34 zoom cancels in `scale/referenceScale`, so dot sizing is invariant to
+    /// it; only the min/width-fraction split of `scale()` shapes the ratio.)
     private static let referenceScale = Projector().scale(width: 1600, height: 1000)
 
     /// Growth exponent for dot radius vs. projection scale. 1.0 holds texture density
@@ -295,9 +304,9 @@ final class TerrainRenderer {
         let breathFreq = 0.4                    // I
 
         // Grow the dot radius with the projection scale so the pointillist texture
-        // holds together on large / ultra-wide screens. Sublinear (exponent < 1) so
-        // dots enlarge gently; clamped to ≥1 so ordinary screens are byte-for-byte
-        // unchanged (at/below the reference the ratio is ≤1 → pinned to 1).
+        // holds together as the viewport gets bigger. Sublinear (exponent < 1) so
+        // dots enlarge gently; clamped to ≥1 so any viewport at/below the reference
+        // scale (ratio ≤ 1 → pinned to exactly 1) is byte-for-byte unchanged.
         let scaleRatio = projector.scale(width: width, height: height) / Self.referenceScale
         let dotScale = max(1.0, pow(scaleRatio, Self.dotGrowthExponent))
 
