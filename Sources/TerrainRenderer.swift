@@ -119,8 +119,14 @@ struct Projector {
     /// empty side margins, so grow the scale toward the width. This is a uniform
     /// zoom (never an x/y stretch), so the field never looks distorted; on
     /// <=~16:9 the max() picks min(r,c) and behavior is unchanged.
+    ///
+    /// `zoomOut` pulls the camera back a touch so more of the terrain's footprint is
+    /// visible (its corners otherwise clip off the sides). Uniform, so it never
+    /// distorts; it flows into project() AND the renderer's dotScale/EDL-radius, which
+    /// all derive from this, keeping the pointillist texture consistent.
+    private static let zoomOut = 0.85
     func scale(width r: Double, height c: Double) -> Double {
-        max(min(r, c), r * 0.46) * 0.34
+        max(min(r, c), r * 0.46) * 0.34 * Projector.zoomOut
     }
 
     func project(_ n: Double, _ e: Double, _ z: Double, width r: Double, height c: Double)
