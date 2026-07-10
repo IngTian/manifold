@@ -110,6 +110,19 @@ struct Projector {
     private let ot = cos(0.92)
     private let ct = sin(0.92)
 
+    /// The uniform world→screen scale for a viewport. Every screen position derives
+    /// from it — and so does the dot radius (see `render`), which is what keeps the
+    /// pointillist texture density constant across resolutions.
+    ///
+    /// Scale by the smaller dimension (like the site) so the terrain keeps its
+    /// proportions — but on very wide screens (ultra-wide/32:9) that leaves big
+    /// empty side margins, so grow the scale toward the width. This is a uniform
+    /// zoom (never an x/y stretch), so the field never looks distorted; on
+    /// <=~16:9 the max() picks min(r,c) and behavior is unchanged.
+    func scale(width r: Double, height c: Double) -> Double {
+        max(min(r, c), r * 0.46) * 0.34
+    }
+
     func project(_ n: Double, _ e: Double, _ z: Double, width r: Double, height c: Double)
         -> (x: Double, y: Double, depth: Double)
     {
@@ -117,12 +130,7 @@ struct Projector {
         let d = n * st + e * nt
         let u = d * ot - z * ct
         let w = d * ct + z * ot
-        // Scale by the smaller dimension (like the site) so the terrain keeps its
-        // proportions — but on very wide screens (ultra-wide/32:9) that leaves big
-        // empty side margins, so grow the scale toward the width. This is a uniform
-        // zoom (never an x/y stretch), so the field never looks distorted; on
-        // <=~16:9 the max() picks min(r,c) and behavior is unchanged.
-        let f = max(min(r, c), r * 0.46) * 0.34
+        let f = scale(width: r, height: c)
         return (r * 0.5 + i * f, c * 0.46 - u * f, w)
     }
 }
@@ -175,6 +183,27 @@ final class TerrainRenderer {
     private let revealInterval: Double = 680 // j
 
     private let J = 1.55 // elevation normalization half-range for color/size
+
+    // MARK: Dot sizing across resolutions
+    //
+    // The dot/walker radii below were tuned against the demo render (1600×1000).
+    // Dot *positions* scale with the live projection scale, so on large / ultra-wide
+    // displays the terrain zooms up but fixed-size dots used to stay tiny — the ridge
+    // dissolved into sparse specks. We grow the radii with the projection scale so
+    // the pointillist texture (dot size vs. dot spacing) stays coherent at any
+    // resolution — a continuous function of the actual scale, never a per-resolution
+    // table. `dotScale` (in `render`) computes it.
+
+    /// Resolution the base radii were tuned at — derived from the projector itself
+    /// (not a hardcoded number) so it tracks any future change to the projection
+    /// constants. This is `Projector.scale(1600×1000)` == 340.
+    private static let referenceScale = Projector().scale(width: 1600, height: 1000)
+
+    /// Growth exponent for dot radius vs. projection scale. 1.0 holds texture density
+    /// exactly constant but reads a touch heavy on very wide screens; 0.75 lets the
+    /// terrain breathe a little more per pixel while still restoring the ridge. Only
+    /// matters above the reference resolution — at/below it `dotScale` is pinned to 1.
+    private static let dotGrowthExponent = 0.75
 
     init(palette: Palette, animateWalkers: Bool = true) {
         self.palette = palette
@@ -265,6 +294,13 @@ final class TerrainRenderer {
         let breathAmp = animate ? 0.04 : 0.0   // y in terrain.js
         let breathFreq = 0.4                    // I
 
+        // Grow the dot radius with the projection scale so the pointillist texture
+        // holds together on large / ultra-wide screens. Sublinear (exponent < 1) so
+        // dots enlarge gently; clamped to ≥1 so ordinary screens are byte-for-byte
+        // unchanged (at/below the reference the ratio is ≤1 → pinned to 1).
+        let scaleRatio = projector.scale(width: width, height: height) / Self.referenceScale
+        let dotScale = max(1.0, pow(scaleRatio, Self.dotGrowthExponent))
+
         // Project every grid point (with breathing), collect for depth sorting.
         struct Dot { let sx: Double; let sy: Double; let depth: Double; let z: Double }
         var dots: [Dot] = []
@@ -284,7 +320,7 @@ final class TerrainRenderer {
                 continue
             }
             let l = max(0.0, min(1.0, (dot.z + J) / (2 * J)))
-            let radius = 2.9 - l * 1.6
+            let radius = (2.9 - l * 1.6) * dotScale
             var opacity = 0.3 + (1 - l) * 0.45
             if dot.sy > bottomFade {
                 opacity *= max(0.0, 1 - (dot.sy - bottomFade) / (height - bottomFade))
@@ -298,7 +334,7 @@ final class TerrainRenderer {
 
         if animate && animateWalkers {
             drawWalkers(in: ctx, width: width, height: height, nowMs: nowMs,
-                        x: x, breathAmp: breathAmp, breathFreq: breathFreq)
+                        x: x, breathAmp: breathAmp, breathFreq: breathFreq, dotScale: dotScale)
         }
     }
 
@@ -341,7 +377,8 @@ final class TerrainRenderer {
     }
 
     private func drawWalkers(in ctx: CGContext, width: Double, height: Double,
-                             nowMs: Double, x: Double, breathAmp: Double, breathFreq: Double) {
+                             nowMs: Double, x: Double, breathAmp: Double, breathFreq: Double,
+                             dotScale: Double) {
         maybeSpawn(nowMs)
 
         let fadeIn = 160.0    // s
@@ -378,7 +415,7 @@ final class TerrainRenderer {
                 if m <= 0.01 { continue }
                 maxAlpha = max(maxAlpha, m)
 
-                let core = (isEnd ? 5.2 : 3.8)
+                let core = (isEnd ? 5.2 : 3.8) * dotScale
                 // Glow halo.
                 ctx.setFillColor(glow.cgColor(alpha: CGFloat(0.5 * m)))
                 fillCircle(ctx, cx: p.x, cy: p.y, r: core * 1.9)
