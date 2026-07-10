@@ -36,6 +36,7 @@ final class TerrainWallpaperView: NSView {
 
     init(frame: NSRect, palette: Palette, showWalkers: Bool) {
         self.renderer = TerrainRenderer(palette: palette, animateWalkers: showWalkers)
+        renderer.lightingEnabled = true   // moving sun/moon shading + backface culling
         super.init(frame: frame)
         wantsLayer = true
         layer?.isOpaque = true

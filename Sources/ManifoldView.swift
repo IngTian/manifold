@@ -38,6 +38,7 @@ final class ManifoldView: ScreenSaverView {
         let settings = Settings(moduleName: moduleName)
         self.settings = settings
         self.renderer = TerrainRenderer(palette: .dark, animateWalkers: settings.showWalkers)
+        renderer.lightingEnabled = true   // moving sun/moon shading + backface culling
         self.startTime = Date()
         super.init(frame: frame, isPreview: isPreview)
 

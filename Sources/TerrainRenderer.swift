@@ -123,6 +123,14 @@ struct Projector {
         max(min(r, c), r * 0.46) * 0.34
     }
 
+    /// Unit vector pointing from the surface toward the camera, in world (n,e,z)
+    /// space. The depth axis is w = (n·st + e·nt)·ct + z·ot; the camera looks along
+    /// −w, so the surface→camera direction is −(st·ct, nt·ct, ot) — already unit
+    /// length (st²ct²+nt²ct²+ot² = ct²+ot² = 1). A surface patch is front-facing
+    /// (visible) when its normal N satisfies N·V > 0; the far slope of each ridge
+    /// (N·V < 0) is the hidden backface that otherwise shows through the mountain.
+    var viewDir: (Double, Double, Double) { (-st * ct, -nt * ct, -ot) }
+
     func project(_ n: Double, _ e: Double, _ z: Double, width r: Double, height c: Double)
         -> (x: Double, y: Double, depth: Double)
     {
@@ -137,11 +145,14 @@ struct Projector {
 
 // MARK: - Renderer
 
-/// One grid sample with its (static) base elevation, computed once.
+/// One grid sample with its (static) base elevation and surface normal, computed once.
 private struct GridPoint {
     let x: Double
     let y: Double
     let baseZ: Double
+    let nx: Double  // unit surface normal in world (x, y, elevation) space, z-up
+    let ny: Double
+    let nz: Double
 }
 
 /// A live walker particle.
@@ -214,6 +225,75 @@ final class TerrainRenderer {
     /// matters above the reference resolution — at/below it `dotScale` is pinned to 1.
     private static let dotGrowthExponent = 0.70
 
+    // MARK: Directional lighting (a fixed overhead sun that shades the dots for shape)
+    //
+    // A single distant light shades the terrain so its 3D form reads clearly. Each
+    // dot's precomputed normal is dotted with the light (N·L, half-Lambert) to shade
+    // its color, and with the view vector (N·V) to fade out the hidden far slope of
+    // each ridge (backface culling) so the terrain reads as one solid surface instead
+    // of a see-through point cloud. When `lightingEnabled` is false the whole path is
+    // skipped and output is byte-for-byte identical to the unlit renderer.
+    //
+    // The light is FIXED high overhead (not orbiting): the terrain mostly faces up,
+    // so an overhead sun lights the visible surface everywhere while the elevation
+    // gradient still yields gentle relief. (An earlier orbiting "sun/moon" swung
+    // behind the mountain for half its cycle and dropped the camera-facing side into
+    // shadow — wrong for shape reading. Motion can return later as a *high* arc that
+    // never dips low; for now a fixed sun keeps the form stable and unambiguous.)
+
+    /// Master switch. Off ⇒ no shading, no backface fade (unchanged look).
+    var lightingEnabled = false
+
+    // Fixed light direction (unit, world x=n,y=e,z=up). Mostly overhead, tipped
+    // slightly toward the viewer/left so the relief has a consistent, readable
+    // gradient rather than being perfectly flat.
+    private static let lightDir: (Double, Double, Double) = {
+        let az = -0.565, alt = 1.30   // ~74° altitude (high), yaw aligned to camera
+        let ca = cos(alt)
+        let v = (cos(az) * ca, sin(az) * ca, sin(alt))
+        let n = (v.0 * v.0 + v.1 * v.1 + v.2 * v.2).squareRoot()
+        return (v.0 / n, v.1 / n, v.2 / n)
+    }()
+    private static let lightAmbient    = 0.50     // shadow-side brightness floor (no dot to black)
+    private static let lightWarm       = 0.30     // warm-lit / cool-shadow temperature swing
+    // Brightness has two parts so shape reads on both pale and dark backgrounds:
+    // `value` darkens the shadow side (reads against a light sky), `gain` brightens
+    // the lit side (reads against a dark sky). We blend between them by the palette's
+    // darkness so it adapts continuously across the theme cross-fade.
+    private static let lightValueLight = 0.62     // shadow-darkening weight in light theme
+    private static let lightGainDark   = 0.95     // lit-brightening weight in dark theme
+    // Backface fade: hide the far slope over a NARROW silhouette band, down to a
+    // floor. Narrow so clearly front-facing dots keep full opacity (a wide band dimmed
+    // even visible dots); floor 0 fully removes the hidden far face.
+    private static let backWidth       = 0.12     // softness of the visible↔hidden band
+    private static let backFloor       = 0.0      // opacity kept on the hidden far face
+
+    /// A 0…1 "darkness" for the active palette (0 = light theme, 1 = dark), from the
+    /// top sky color's luminance. Drives the light/dark blend of the shading so it
+    /// adapts smoothly as the theme cross-fades (no hard switch).
+    private var paletteDarkness: Double {
+        let top = activePalette.skyColor(at: 0)
+        let lum = 0.2126 * Double(top.r) + 0.7152 * Double(top.g) + 0.0722 * Double(top.b)
+        return max(0.0, min(1.0, 1.0 - lum))
+    }
+
+    /// Shade a base (elevation- and theme-resolved) color by the light. `ndl` = N·L
+    /// in [-1,1]. Half-Lambert → shade ∈ [ambient,1] (soft terminator, nothing to
+    /// black). Shade drives brightness (theme-adaptive: darken shadows in light
+    /// theme, brighten highlights in dark theme) and a warm-lit/cool-shadow tint.
+    private func litColor(_ base: RGB, ndl: Double) -> RGB {
+        let h = 0.5 + 0.5 * ndl                                   // half-Lambert, [0,1]
+        let shade = Self.lightAmbient + (1 - Self.lightAmbient) * h
+        let dark = paletteDarkness
+        let value = 1 - (Self.lightValueLight * (1 - dark)) * (1 - shade) // ≤1: darken shadows
+        let gain = 1 + (Self.lightGainDark * dark) * h                    // ≥1: brighten lit
+        let t = Self.lightWarm * (h - 0.5) * 2                            // [-warm,+warm]
+        let r = max(0.0, min(1.0, base.r * value * gain * (1 + t)))
+        let g = max(0.0, min(1.0, base.g * value * gain))
+        let b = max(0.0, min(1.0, base.b * value * gain * (1 - t)))
+        return RGB(rNorm: r, gNorm: g, bNorm: b)
+    }
+
     init(palette: Palette, animateWalkers: Bool = true) {
         self.palette = palette
         self.activePalette = palette
@@ -228,7 +308,12 @@ final class TerrainRenderer {
         while a <= f.N {
             var h = -f.N
             while h <= f.N {
-                pts.append(GridPoint(x: a, y: h, baseZ: f.elevation(a, h)))
+                // Surface normal of z = elevation(x,y): N = normalize(-fx, -fy, 1).
+                // Precomputed here (like baseZ) so per-frame shading is just a dot product.
+                let (gx, gy) = f.gradient(a, h)
+                let inv = 1.0 / (gx * gx + gy * gy + 1.0).squareRoot()
+                pts.append(GridPoint(x: a, y: h, baseZ: f.elevation(a, h),
+                                     nx: -gx * inv, ny: -gy * inv, nz: inv))
                 h += f.V
             }
             a += f.V
@@ -310,15 +395,24 @@ final class TerrainRenderer {
         let scaleRatio = projector.scale(width: width, height: height) / Self.referenceScale
         let dotScale = max(1.0, pow(scaleRatio, Self.dotGrowthExponent))
 
+        // Directional light on a slow azimuth arc + view vector for backface culling.
+        // Computed once per frame; only consulted when lightingEnabled (else the dot
+        // loop takes the exact original unlit path).
+        let lit = lightingEnabled
+        let (Lx, Ly, Lz) = Self.lightDir      // fixed overhead sun
+        let (Vx, Vy, Vz) = projector.viewDir  // for backface culling
+
         // Project every grid point (with breathing), collect for depth sorting.
-        struct Dot { let sx: Double; let sy: Double; let depth: Double; let z: Double }
+        struct Dot { let sx: Double; let sy: Double; let depth: Double; let z: Double; let ndl: Double; let ndv: Double }
         var dots: [Dot] = []
         dots.reserveCapacity(grid.count)
         for g in grid {
             var z = g.baseZ
             z += breathAmp * sin(x * breathFreq + g.x * 0.7 + g.y * 0.6)
             let p = projector.project(g.x, g.y, z, width: width, height: height)
-            dots.append(Dot(sx: p.x, sy: p.y, depth: p.depth, z: z))
+            let ndl = lit ? (g.nx * Lx + g.ny * Ly + g.nz * Lz) : 0  // N·L, half-Lambert input
+            let ndv = lit ? (g.nx * Vx + g.ny * Vy + g.nz * Vz) : 0  // N·V, >0 front / <0 hidden
+            dots.append(Dot(sx: p.x, sy: p.y, depth: p.depth, z: z, ndl: ndl, ndv: ndv))
         }
         // Painter's order: far (small depth) first.
         dots.sort { $0.depth < $1.depth }
@@ -334,9 +428,15 @@ final class TerrainRenderer {
             if dot.sy > bottomFade {
                 opacity *= max(0.0, 1 - (dot.sy - bottomFade) / (height - bottomFade))
             }
+            if lit {
+                // Backface fade: smoothstep the far (hidden) slope down to backFloor.
+                let tt = max(0.0, min(1.0, (dot.ndv + Self.backWidth) / (2 * Self.backWidth)))
+                let s = tt * tt * (3 - 2 * tt)
+                opacity *= Self.backFloor + (1 - Self.backFloor) * s
+            }
             if opacity <= 0.004 { continue }
 
-            let color = elevationColor(l)
+            let color = lit ? litColor(elevationColor(l), ndl: dot.ndl) : elevationColor(l)
             ctx.setFillColor(color.cgColor(alpha: CGFloat(opacity)))
             fillCircle(ctx, cx: dot.sx, cy: dot.sy, r: max(0.5, radius))
         }
