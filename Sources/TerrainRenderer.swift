@@ -262,11 +262,20 @@ final class TerrainRenderer {
     // darkness so it adapts continuously across the theme cross-fade.
     private static let lightValueLight = 0.62     // shadow-darkening weight in light theme
     private static let lightGainDark   = 0.95     // lit-brightening weight in dark theme
-    // Backface fade: hide the far slope over a NARROW silhouette band, down to a
-    // floor. Narrow so clearly front-facing dots keep full opacity (a wide band dimmed
-    // even visible dots); floor 0 fully removes the hidden far face.
-    private static let backWidth       = 0.12     // softness of the visible↔hidden band
-    private static let backFloor       = 0.0      // opacity kept on the hidden far face
+    // Backface DIM: the far (away-facing) slope of the ridge draws the same colors as
+    // the near slope, so front and back mush together and depth is unreadable. We
+    // detect away-facing dots (N·V < 0) and make them RECEDE — dim their opacity to a
+    // floor AND desaturate toward a neutral gray — so the near face reads bright and
+    // the back falls away. This is the dominant front/back cue for a single ridge; a
+    // soft band around the silhouette (N·V ≈ 0) keeps the transition from hard-edging.
+    //
+    // (A full floating-horizon / ray-occlusion pass would also catch one bump hidden
+    // behind another, but for this single-dominant-ridge field the N·V test is
+    // visually equivalent and far simpler — one dot product, precomputable.)
+    private static let backWidth       = 0.25     // half-width of the soft silhouette band (in N·V)
+    private static let backFloor       = 0.18     // opacity kept on the fully back-facing slope
+    private static let backDesat       = 0.7      // how far hidden dots lerp toward gray
+    private static let backGray        = RGB(90, 96, 104)  // neutral recede color
 
     /// A 0…1 "darkness" for the active palette (0 = light theme, 1 = dark), from the
     /// top sky color's luminance. Drives the light/dark blend of the shading so it
@@ -428,15 +437,20 @@ final class TerrainRenderer {
             if dot.sy > bottomFade {
                 opacity *= max(0.0, 1 - (dot.sy - bottomFade) / (height - bottomFade))
             }
+            var color = lit ? litColor(elevationColor(l), ndl: dot.ndl) : elevationColor(l)
             if lit {
-                // Backface fade: smoothstep the far (hidden) slope down to backFloor.
+                // Backface dim + desaturate: as N·V goes from front (+) through the
+                // silhouette (0) to back (−), fade opacity toward backFloor and lerp
+                // color toward gray, so the far slope recedes and depth reads.
+                //   front (tt→1): full opacity, full color.
+                //   back  (tt→0): opacity·backFloor, color lerped `backDesat` to gray.
                 let tt = max(0.0, min(1.0, (dot.ndv + Self.backWidth) / (2 * Self.backWidth)))
-                let s = tt * tt * (3 - 2 * tt)
+                let s = tt * tt * (3 - 2 * tt)                    // smoothstep 0→1
                 opacity *= Self.backFloor + (1 - Self.backFloor) * s
+                color = RGB.lerp(Self.backGray, color, CGFloat(1 - Self.backDesat * (1 - s)))
             }
             if opacity <= 0.004 { continue }
 
-            let color = lit ? litColor(elevationColor(l), ndl: dot.ndl) : elevationColor(l)
             ctx.setFillColor(color.cgColor(alpha: CGFloat(opacity)))
             fillCircle(ctx, cx: dot.sx, cy: dot.sy, r: max(0.5, radius))
         }
