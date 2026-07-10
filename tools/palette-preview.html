@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manifold — Palette Preview</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; background: #0b0d10; color: #cdd3da;
+    font: 13px/1.5 -apple-system, "SF Pro Text", system-ui, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: rgba(11,13,16,.92);
+    backdrop-filter: blur(8px); border-bottom: 1px solid #1c222b; padding: 12px 18px; }
+  header h1 { font-size: 15px; margin: 0 0 4px; font-weight: 600; }
+  header p { margin: 0; color: #8b95a1; }
+  .controls { margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { background: #1d2530; color: #cdd3da; border: 1px solid #2b3542; border-radius: 7px;
+    padding: 6px 11px; font: inherit; cursor: pointer; }
+  button:hover { background: #263042; }
+  button.on { background: #2f6feb; border-color: #2f6feb; color: #fff; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 18px; }
+  .card { border: 1px solid #1c222b; border-radius: 12px; overflow: hidden; margin-bottom: 18px;
+    grid-column: 1 / -1; }
+  .card .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  .card canvas { display: block; width: 100%; height: 300px; }
+  .card .meta { padding: 10px 14px; background: #10141a; border-top: 1px solid #1c222b; }
+  .card .meta .name { font-weight: 600; font-size: 14px; color: #e6ebf1; }
+  .card .meta .name .rank { color: #6f7b88; font-weight: 500; margin-left: 6px; }
+  .card .meta .mood { color: #8b95a1; margin-top: 2px; }
+  .card .meta .score { color: #5b6673; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .lbl { position: absolute; top: 8px; left: 10px; font-size: 11px; letter-spacing: .04em;
+    text-transform: uppercase; color: rgba(255,255,255,.55); mix-blend-mode: difference; }
+  .tile { position: relative; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⛰ Manifold — Palette Preview</h1>
+  <p>The exact terrain + EDL shape cue, rendered in each candidate palette. Left = dark mode, right = light mode. Ranked by the design judge.</p>
+  <div class="controls">
+    <button id="tEdl" class="on">EDL on</button>
+    <button id="tBreathe">Breathe</button>
+    <span style="color:#5b6673">zoom 0.85 · fixed screensaver view</span>
+  </div>
+</header>
+<div class="grid" id="grid"></div>
+
+<script>
+// ---- The EXACT terrain field + projection from Sources/TerrainRenderer.swift ----
+const BUMPS = [
+  {a:-1.0,  cx:-1.4, cy:-0.5, s:0.9},
+  {a:-0.65, cx: 1.5, cy: 0.7, s:0.8},
+  {a:-0.5,  cx: 0.3, cy:-1.3, s:0.7},
+  {a: 0.7,  cx:-0.2, cy: 0.9, s:1.0},
+  {a: 0.45, cx: 1.0, cy:-0.6, s:0.7},
+];
+const U = 1.7, N = 2.6, V = 0.16;
+const J = 1.55;                       // elevation normalization half-range
+const ZOOM = 0.85;
+// fixed projection angles (it = PI*0.18 yaw, dt = 0.92 tilt)
+const nt = Math.cos(Math.PI*0.18), st = Math.sin(Math.PI*0.18);
+const ot = Math.cos(0.92), ct = Math.sin(0.92);
+// EDL knobs (baked values from TerrainRenderer.swift)
+const EDL_R = 0.53, EDL_STR = 2.0, EDL_FLOOR = 0.20, EDL_SIZE = 0.75, ELEV_EMPH = 0.20;
+// fixed overhead sun for the warm/cool tint (litColor)
+const AZ = -0.565, ALT = 1.30;
+const Lx = Math.cos(AZ)*Math.cos(ALT), Ly = Math.sin(AZ)*Math.cos(ALT), Lz = Math.sin(ALT);
+const AMBIENT = 0.50, WARM = 0.30, VALUE_LIGHT = 0.62, GAIN_DARK = 0.95;
+
+function elevation(x, y) {
+  let t = 0;
+  for (const r of BUMPS) { const dx=x-r.cx, dy=y-r.cy; t += r.a*Math.exp(-(dx*dx+dy*dy)/(2*r.s*r.s)); }
+  return t*U;
+}
+function gradient(x, y) {
+  let gx=0, gy=0;
+  for (const r of BUMPS) { const dx=x-r.cx, dy=y-r.cy; const e=r.a*Math.exp(-(dx*dx+dy*dy)/(2*r.s*r.s));
+    gx += e*(-dx/(r.s*r.s)); gy += e*(-dy/(r.s*r.s)); }
+  return [gx*U, gy*U];
+}
+
+// Build the grid once (positions, baseZ, normal). Matches the renderer's loop.
+const GRID = [];
+for (let a=-N; a<=N+1e-9; a+=V) {
+  for (let h=-N; h<=N+1e-9; h+=V) {
+    const z = elevation(a,h);
+    const [gx,gy] = gradient(a,h);
+    const inv = 1/Math.hypot(gx,gy,1);
+    GRID.push({x:a, y:h, baseZ:z, nx:-gx*inv, ny:-gy*inv, nz:inv, ndl: (-gx*inv)*Lx+(-gy*inv)*Ly+(inv)*Lz});
+  }
+}
+// Precompute EDL in raw-projected space (resolution independent).
+(function computeEDL(){
+  const n = GRID.length, ix=new Float64Array(n), uy=new Float64Array(n), dp=new Float64Array(n);
+  for (let i=0;i<n;i++){ const g=GRID[i]; const d=g.x*st+g.y*nt; ix[i]=g.x*nt-g.y*st; uy[i]=d*ot-g.baseZ*ct; dp[i]=d*ct+g.baseZ*ot; }
+  const r2 = EDL_R*EDL_R; const resp=new Float64Array(n);
+  for (let i=0;i<n;i++){ let sum=0,cnt=0; for(let j=0;j<n;j++){ if(j===i)continue; const dx=ix[j]-ix[i],dy=uy[j]-uy[i]; if(dx*dx+dy*dy>r2)continue; cnt++; const rec=dp[i]-dp[j]; if(rec>0)sum+=rec; } resp[i]=cnt>0?sum/cnt:0; }
+  const sorted=Array.from(resp).sort((a,b)=>a-b); const ref=Math.max(1e-6, sorted[Math.floor(0.80*(n-1))]);
+  for (let i=0;i<n;i++) GRID[i].edl = Math.exp(-(resp[i]/ref)*EDL_STR);
+})();
+
+function hex(h){ h=h.replace('#',''); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; }
+function lerp(a,b,t){ return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; }
+function skyLum(stops){ const c=hex(stops[0].hex); return 0.2126*c[0]/255+0.7152*c[1]/255+0.0722*c[2]/255; }
+
+// litColor port (operates in 0..255)
+function litColor(base, ndl, dark){
+  const h=0.5+0.5*ndl; const shade=AMBIENT+(1-AMBIENT)*h;
+  const value=1-(VALUE_LIGHT*(1-dark))*(1-shade); const gain=1+(GAIN_DARK*dark)*h;
+  const t=WARM*(h-0.5)*2;
+  const cl=x=>Math.max(0,Math.min(255,x));
+  return [cl(base[0]*value*gain*(1+t)), cl(base[1]*value*gain), cl(base[2]*value*gain*(1-t))];
+}
+
+// ---- Palettes: Classic (from Palette.swift) + 5 designed (palette-designs.json) ----
+const CLASSIC = {
+  name:"Classic", rank:"current", mood:"Teal-green dots on near-black sky / earth tones on cream — the shipped look.",
+  score:"— shipping default —",
+  dark:{ sky:[{loc:0,hex:"#16191d"},{loc:.2,hex:"#131619"},{loc:.4,hex:"#111417"},{loc:.6,hex:"#0e1013"},{loc:.8,hex:"#0b0d0f"},{loc:1,hex:"#08090b"}],
+    rampValley:"#46785c", rampMid:"#4e9696", rampPeak:"#5fbeaa" },
+  light:{ sky:[{loc:0,hex:"#f4efe4"},{loc:.182,hex:"#f0eadf"},{loc:.341,hex:"#efe6d4"},{loc:.523,hex:"#e2d2c2"},{loc:.682,hex:"#ccc4b6"},{loc:.841,hex:"#a6a8ad"},{loc:1,hex:"#7d7e88"}],
+    rampValley:"#966e3a", rampMid:"#787060", rampPeak:"#6d7689" },
+};
+// designed palettes, ordered so the cool/architectural family you liked sits up top,
+// the new candidates next, and the warm/other ones you were cooler on at the bottom.
+// Judge's legibility fixes applied to the original 5 (marked ▸ in the mood line).
+const DESIGNED = [
+  {
+    name:"Nordic Slate & Fog", rank:"#1 · judge 36 · ♥ liked",
+    mood:"A still fjord morning: desaturated blue-grays, brushed steel — architectural calm. ▸ light peak darkened for fog headroom.",
+    score:"elegance 9 · coherence 10 · legibility 9 · distinct 8",
+    dark:{ sky:[{loc:0,hex:"#1c242c"},{loc:.25,hex:"#171e25"},{loc:.5,hex:"#12181e"},{loc:.75,hex:"#0d1217"},{loc:1,hex:"#090c10"}],
+      rampValley:"#455a68", rampMid:"#6f8b9b", rampPeak:"#c3d6df" },
+    light:{ sky:[{loc:0,hex:"#eef1f3"},{loc:.28,hex:"#e2e7ea"},{loc:.55,hex:"#d1dae0"},{loc:.8,hex:"#c2ced5"},{loc:1,hex:"#b4c1c9"}],
+      rampValley:"#37444f", rampMid:"#516470", rampPeak:"#647685" },   // peak fix #728794→#647685
+  },
+  {
+    name:"Sumi-e Ink Wash", rank:"#2 · judge 35 · ♥ liked",
+    mood:"A mountain in a single loaded brush: graphite on rice paper by day, silver peaks from ink-black by night. 山水. ▸ light valley given more ink.",
+    score:"elegance 10 · coherence 10 · legibility 8 · distinct 7",
+    dark:{ sky:[{loc:0,hex:"#1a1d22"},{loc:.2,hex:"#16191e"},{loc:.4,hex:"#111318"},{loc:.6,hex:"#0c0e12"},{loc:.8,hex:"#08090c"},{loc:1,hex:"#050506"}],
+      rampValley:"#575d67", rampMid:"#858c97", rampPeak:"#c6ccd5" },
+    light:{ sky:[{loc:0,hex:"#f7f6f2"},{loc:.22,hex:"#f2f1ee"},{loc:.45,hex:"#ececeb"},{loc:.68,hex:"#e2e3e6"},{loc:.86,hex:"#d7d9de"},{loc:1,hex:"#cbced5"}],
+      rampValley:"#7f838c", rampMid:"#5d626b", rampPeak:"#31353d" },   // valley fix #8b8f96→#7f838c
+  },
+
+  // ───────── NEW BATCH — weighted toward the cool/minimal register you liked ─────────
+  {
+    name:"Glacier", rank:"new · cool",
+    mood:"Crevasse ice under a polar sky: cold cyan-blue deepening to ink, ridgelines catching light as bright rime. Bluer & colder than Nordic, and a different hue from Classic's green teal.",
+    score:"cool family · high-key peaks",
+    dark:{ sky:[{loc:0,hex:"#101a24"},{loc:.25,hex:"#0c1520"},{loc:.5,hex:"#080f18"},{loc:.75,hex:"#050a11"},{loc:1,hex:"#04080d"}],
+      rampValley:"#2f5a6e", rampMid:"#5b93a8", rampPeak:"#c6e3ed" },
+    light:{ sky:[{loc:0,hex:"#eef4f7"},{loc:.3,hex:"#dfe9ee"},{loc:.6,hex:"#c8d9e1"},{loc:.82,hex:"#baccd6"},{loc:1,hex:"#aec4d0"}],
+      rampValley:"#274956", rampMid:"#3f6b7a", rampPeak:"#5e8a99" },
+  },
+  {
+    name:"Heather & Slate", rank:"new · cool",
+    mood:"Fog over highland heather: a cool slate with the faintest violet drift — Nordic's calm with a little more personality. Desaturated, so it stays far from Aurora's neon indigo.",
+    score:"cool family · muted violet-gray",
+    dark:{ sky:[{loc:0,hex:"#1c1b26"},{loc:.25,hex:"#17161f"},{loc:.5,hex:"#121119"},{loc:.75,hex:"#0d0c13"},{loc:1,hex:"#070610"}],
+      rampValley:"#4a4d63", rampMid:"#7d7f9c", rampPeak:"#cdd0e0" },
+    light:{ sky:[{loc:0,hex:"#f2f1f6"},{loc:.3,hex:"#e7e6ee"},{loc:.6,hex:"#d5d4e0"},{loc:.82,hex:"#c8c7d5"},{loc:1,hex:"#bdbcc9"}],
+      rampValley:"#33344a", rampMid:"#55566e", rampPeak:"#74768c" },
+  },
+  {
+    name:"Graphite & Copper", rank:"new · mono + accent",
+    mood:"Sumi-e's graphite field, but the ridge warms to a single restrained copper glint — monochrome discipline with one quiet spark of life at the peaks.",
+    score:"neutral base · one warm accent",
+    dark:{ sky:[{loc:0,hex:"#1a1b1d"},{loc:.25,hex:"#141517"},{loc:.5,hex:"#0e0f10"},{loc:.75,hex:"#09090a"},{loc:1,hex:"#050505"}],
+      rampValley:"#565a5f", rampMid:"#8a7d6e", rampPeak:"#d9a878" },
+    light:{ sky:[{loc:0,hex:"#f6f5f3"},{loc:.3,hex:"#eeece9"},{loc:.6,hex:"#e0ded9"},{loc:.82,hex:"#d5d2cd"},{loc:1,hex:"#cbc9c6"}],
+      rampValley:"#3a3d40", rampMid:"#6e5f4e", rampPeak:"#9c6f42" },
+  },
+  {
+    name:"Basalt & Ash", rank:"new · neutral",
+    mood:"Cooled volcanic stone: warm-neutral grays and pale ash, no color at all. The warm-gray counterpart to Sumi-e's cool graphite — softer, less clinical.",
+    score:"neutral family · warm gray",
+    dark:{ sky:[{loc:0,hex:"#1b1a18"},{loc:.25,hex:"#151412"},{loc:.5,hex:"#0f0e0c"},{loc:.75,hex:"#090807"},{loc:1,hex:"#060504"}],
+      rampValley:"#5a5750", rampMid:"#8c8578", rampPeak:"#d7ccb8" },
+    light:{ sky:[{loc:0,hex:"#f5f3ee"},{loc:.3,hex:"#ece9e2"},{loc:.6,hex:"#ddd9cf"},{loc:.82,hex:"#d3cec2"},{loc:1,hex:"#c9c4b8"}],
+      rampValley:"#3c3a34", rampMid:"#6b6456", rampPeak:"#938a74" },
+  },
+  {
+    name:"Bordeaux Night", rank:"new · warm wildcard",
+    mood:"Oxblood wine on charcoal, the last coal of a cellar candle — a moody warm that stays deep and desaturated, more sophisticated than Ember's bright amber. Someone might love this.",
+    score:"warm family · deep & restrained",
+    dark:{ sky:[{loc:0,hex:"#1d1417"},{loc:.25,hex:"#160f12"},{loc:.5,hex:"#100a0c"},{loc:.75,hex:"#0b0607"},{loc:1,hex:"#070405"}],
+      rampValley:"#6b3138", rampMid:"#a15650", rampPeak:"#d99a86" },
+    light:{ sky:[{loc:0,hex:"#f5eeec"},{loc:.3,hex:"#eee0de"},{loc:.6,hex:"#e0cbca"},{loc:.82,hex:"#d6bfbf"},{loc:1,hex:"#cbb4b4"}],
+      rampValley:"#4a2328", rampMid:"#7d4842", rampPeak:"#a86a52" },
+  },
+
+  // ───────── ORIGINAL WARM/OTHER SET — you were cooler on these; kept as options ─────────
+  {
+    name:"Ember Dusk", rank:"#3 · judge 33",
+    mood:"Distant campfire embers across a mountain as the sky burns to plum-charcoal — warm, quiet, last light. ▸ dark valley lifted, light peak darkened.",
+    score:"elegance 9 · coherence 9 · legibility 6 · distinct 9",
+    dark:{ sky:[{loc:0,hex:"#2a2030"},{loc:.2,hex:"#231a29"},{loc:.4,hex:"#1b1420"},{loc:.62,hex:"#150f18"},{loc:.82,hex:"#0f0a12"},{loc:1,hex:"#0a060c"}],
+      rampValley:"#8f4940", rampMid:"#b25c42", rampPeak:"#e69e5c" },   // valley fix #783a34→#8f4940
+    light:{ sky:[{loc:0,hex:"#f6ece2"},{loc:.18,hex:"#f3e4d7"},{loc:.38,hex:"#eed5c6"},{loc:.58,hex:"#e3c3b6"},{loc:.8,hex:"#d2aaa4"},{loc:1,hex:"#b8929a"}],
+      rampValley:"#5c363a", rampMid:"#9e5842", rampPeak:"#b8763f" },   // peak fix #c4804a→#b8763f
+  },
+  {
+    name:"Sage & Moss", rank:"#4 · judge 32",
+    mood:"A quiet botanical morning: moss on stone, olive leaves, a low thread of gold — earthy, unhurried. ▸ light peak darkened for contrast.",
+    score:"elegance 8 · coherence 9 · legibility 7 · distinct 8",
+    dark:{ sky:[{loc:0,hex:"#1a2017"},{loc:.25,hex:"#161b14"},{loc:.5,hex:"#121611"},{loc:.75,hex:"#0e110d"},{loc:1,hex:"#0a0c09"}],
+      rampValley:"#5b7d52", rampMid:"#9bab68", rampPeak:"#dccb8a" },
+    light:{ sky:[{loc:0,hex:"#f3f1e6"},{loc:.18,hex:"#edecdc"},{loc:.35,hex:"#e5e6d0"},{loc:.52,hex:"#d7dac2"},{loc:.68,hex:"#c3c9b2"},{loc:.85,hex:"#a8ae99"},{loc:1,hex:"#8b9280"}],
+      rampValley:"#556b3b", rampMid:"#7d8547", rampPeak:"#948435" },   // peak fix #ab9a52→#948435
+  },
+  {
+    name:"Aurora Indigo", rank:"#5 · judge 28",
+    mood:"A still winter night: indigo-violet sky, a cool aurora across the ridge in teal→cyan→mint. ▸ mint peak toned down from near-neon.",
+    score:"elegance 8 · coherence 8 · legibility 6 · distinct 6 — closest to Classic teal",
+    dark:{ sky:[{loc:0,hex:"#211b46"},{loc:.2,hex:"#1a1540"},{loc:.4,hex:"#141031"},{loc:.6,hex:"#0f0b24"},{loc:.8,hex:"#0a0719"},{loc:1,hex:"#060410"}],
+      rampValley:"#2e8b82", rampMid:"#7cd2d8", rampPeak:"#8fe0b8" },   // peak fix #b0f0cd→#8fe0b8
+    light:{ sky:[{loc:0,hex:"#f2f1fb"},{loc:.2,hex:"#eaeaf6"},{loc:.4,hex:"#e0e1f1"},{loc:.6,hex:"#d4d6ea"},{loc:.8,hex:"#c7cae2"},{loc:1,hex:"#b9bed9"}],
+      rampValley:"#1d635b", rampMid:"#2f8c86", rampPeak:"#57ab8a" },
+  },
+];
+
+const PALETTES = [CLASSIC, ...DESIGNED];
+
+const opt = { edl:true, breathe:false };
+let breatheClock = 0, animating = false;
+
+function project(g, W, H, breatheZ) {
+  let z = g.baseZ + breatheZ;
+  const i = g.x*nt - g.y*st;
+  const d = g.x*st + g.y*nt;
+  const u = d*ot - z*ct;
+  const w = d*ct + z*ot;
+  const f = Math.max(Math.min(W,H), W*0.46) * 0.34 * ZOOM;
+  return { sx: W*0.5 + i*f, sy: H*0.46 - u*f, depth: w };
+}
+
+function drawTile(canvas, pal, mode) {
+  const P = pal[mode];
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+
+  // sky
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  for (const s of P.sky) bg.addColorStop(s.loc, s.hex);
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  const dark = 1 - skyLum(P.sky);
+  const valley = hex(P.rampValley), mid = hex(P.rampMid), peak = hex(P.rampPeak);
+  const bt = breatheClock;
+
+  const dots = GRID.map(g => {
+    const bz = opt.breathe ? 0.04*Math.sin(bt*0.4 + g.x*0.7 + g.y*0.6) : 0;
+    const p = project(g, W, H, bz);
+    return { g, sx:p.sx, sy:p.sy, depth:p.depth, z:g.baseZ+bz };
+  });
+  dots.sort((a,b)=>a.depth-b.depth);   // far first
+
+  const bottomFade = H*0.84;
+  for (const d of dots) {
+    const l = Math.max(0, Math.min(1, (d.z + J)/(2*J)));
+    // elevation ramp (two-segment)
+    let base = l<0.5 ? lerp(valley, mid, l/0.5) : lerp(mid, peak, (l-0.5)/0.5);
+    base = litColor(base, d.g.ndl, dark);
+    let radius = 2.9 - l*1.6;
+    let opacity = 0.3 + (1-l)*0.45;
+    if (d.sy > bottomFade) opacity *= Math.max(0, 1-(d.sy-bottomFade)/(H-bottomFade));
+    if (opt.edl) {
+      const sh = d.g.edl;
+      opacity *= EDL_FLOOR + (1-EDL_FLOOR)*sh;
+      radius  *= 1 + EDL_SIZE*(sh-0.5);
+      opacity *= 1 - ELEV_EMPH*(1-l);
+      radius  *= (1-ELEV_EMPH*0.5) + (ELEV_EMPH*0.5)*l;
+    }
+    if (opacity <= 0.004) continue;
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = `rgb(${base[0]|0},${base[1]|0},${base[2]|0})`;
+    ctx.beginPath(); ctx.arc(d.sx, d.sy, Math.max(0.5, radius), 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function build() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  for (const pal of PALETTES) {
+    const card = document.createElement('div'); card.className = 'card';
+    card.innerHTML = `<div class="tiles">
+        <div class="tile"><span class="lbl">Dark</span><canvas></canvas></div>
+        <div class="tile"><span class="lbl">Light</span><canvas></canvas></div>
+      </div>
+      <div class="meta">
+        <div class="name">${pal.name}<span class="rank">${pal.rank||''}</span></div>
+        <div class="mood">${pal.mood||''}</div>
+        <div class="score">${pal.score||''}</div>
+      </div>`;
+    grid.appendChild(card);
+    const [cD, cL] = card.querySelectorAll('canvas');
+    pal._cD = cD; pal._cL = cL;
+  }
+  redraw();
+}
+function redraw() {
+  for (const pal of PALETTES) { drawTile(pal._cD, pal, 'dark'); drawTile(pal._cL, pal, 'light'); }
+}
+
+document.getElementById('tEdl').onclick = e => { opt.edl=!opt.edl; e.target.classList.toggle('on',opt.edl); redraw(); };
+document.getElementById('tBreathe').onclick = e => { opt.breathe=!opt.breathe; e.target.classList.toggle('on',opt.breathe); ensureLoop(); if(!opt.breathe) redraw(); };
+function ensureLoop(){ if(animating||!opt.breathe)return; animating=true; requestAnimationFrame(loop); }
+function loop(){ if(!opt.breathe){animating=false;return;} breatheClock+=0.05; redraw(); requestAnimationFrame(loop); }
+window.addEventListener('resize', redraw);
+build();
+</script>
+</body>
+</html>
