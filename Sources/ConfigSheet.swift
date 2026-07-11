@@ -23,6 +23,8 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
     private var fontPopup: NSPopUpButton!
     private var zoomSlider: NSSlider!
     private var zoomValueLabel: NSTextField!
+    private var breathSlider: NSSlider!
+    private var breathValueLabel: NSTextField!
     private var mottoField: NSTextField!
 
     init(settings: Settings, onChange: @escaping () -> Void) {
@@ -34,7 +36,7 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
 
     private func buildWindow() {
         let width: CGFloat = 420
-        let height: CGFloat = 540
+        let height: CGFloat = 584
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: [.titled],
@@ -146,6 +148,25 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
         zoomValueLabel.alignment = .right
         zoomValueLabel.frame = NSRect(x: 278, y: y, width: 118, height: 18)
         content.addSubview(zoomValueLabel)
+        y -= 40
+
+        let motionLabel = makeLabel("Motion", size: 12, weight: .regular)
+        motionLabel.frame = NSRect(x: 24, y: y, width: 60, height: 20)
+        content.addSubview(motionLabel)
+
+        // breathStrength scales the field's breathing amplitude: 0 = still … 2 =
+        // double. 1.0 is the tuned default; the readout (breathText) names the bands.
+        breathSlider = NSSlider(value: settings.breathStrength, minValue: 0.0, maxValue: 2.0,
+                                target: self, action: #selector(changeBreath))
+        breathSlider.frame = NSRect(x: 90, y: y - 2, width: 180, height: 24)
+        breathSlider.isContinuous = true
+        content.addSubview(breathSlider)
+
+        breathValueLabel = makeLabel(breathText(settings.breathStrength), size: 11, weight: .regular)
+        breathValueLabel.textColor = .secondaryLabelColor
+        breathValueLabel.alignment = .right
+        breathValueLabel.frame = NSRect(x: 278, y: y, width: 118, height: 18)
+        content.addSubview(breathValueLabel)
         y -= 44
 
         let mottoLabel = makeLabel("Motto", size: 12, weight: .regular)
@@ -200,6 +221,11 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
         zoomValueLabel.stringValue = zoomText(zoomSlider.doubleValue)
         live()
     }
+    @objc private func changeBreath() {
+        settings.breathStrength = breathSlider.doubleValue
+        breathValueLabel.stringValue = breathText(breathSlider.doubleValue)
+        live()
+    }
 
     /// A friendly right-anchored readout for the zoom slider (e.g. "close · 1.00×").
     /// Smaller zoomOut shows more terrain (wide); larger zooms in (close).
@@ -210,6 +236,19 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
         case ..<0.95: name = "default"
         case ..<1.08: name = "close"
         default: name = "closest"
+        }
+        return String(format: "%@ · %.2f×", name, v)
+    }
+
+    /// A friendly right-anchored readout for the motion slider (e.g. "default · 1.00×").
+    /// 0 = still, 1 = the tuned default, higher = livelier.
+    private func breathText(_ v: Double) -> String {
+        let name: String
+        switch v {
+        case ..<0.05: name = "still"
+        case ..<0.8:  name = "subtle"
+        case ..<1.25: name = "default"
+        default:      name = "lively"
         }
         return String(format: "%@ · %.2f×", name, v)
     }

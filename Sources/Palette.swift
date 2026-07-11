@@ -253,25 +253,37 @@ enum PalettePreset: Int, CaseIterable {
     case classic = 0
     case nordicSlate = 1
     case sumiInk = 2
+    case glacier = 3
+    case heatherSlate = 4
+    case graphiteCopper = 5
+    case basaltAsh = 6
+    case bordeauxNight = 7
 
     /// Menu / popup label.
     var label: String {
         switch self {
-        case .classic:     return "Classic"
-        case .nordicSlate: return "Nordic Slate"
-        case .sumiInk:     return "Sumi-e Ink"
+        case .classic:        return "Classic"
+        case .nordicSlate:    return "Nordic Slate"
+        case .sumiInk:        return "Sumi-e Ink"
+        case .glacier:        return "Glacier"
+        case .heatherSlate:   return "Heather & Slate"
+        case .graphiteCopper: return "Graphite & Copper"
+        case .basaltAsh:      return "Basalt & Ash"
+        case .bordeauxNight:  return "Bordeaux Night"
         }
     }
 
     /// The palette for a given light/dark mode.
     func palette(dark: Bool) -> Palette {
         switch self {
-        case .classic:
-            return dark ? .dark : .light
-        case .nordicSlate:
-            return dark ? Self.nordicDark : Self.nordicLight
-        case .sumiInk:
-            return dark ? Self.sumiDark : Self.sumiLight
+        case .classic:        return dark ? .dark : .light
+        case .nordicSlate:    return dark ? Self.nordicDark : Self.nordicLight
+        case .sumiInk:        return dark ? Self.sumiDark : Self.sumiLight
+        case .glacier:        return dark ? Self.glacierDark : Self.glacierLight
+        case .heatherSlate:   return dark ? Self.heatherDark : Self.heatherLight
+        case .graphiteCopper: return dark ? Self.graphiteDark : Self.graphiteLight
+        case .basaltAsh:      return dark ? Self.basaltDark : Self.basaltLight
+        case .bordeauxNight:  return dark ? Self.bordeauxDark : Self.bordeauxLight
         }
     }
 
@@ -302,4 +314,76 @@ enum PalettePreset: Int, CaseIterable {
         valley: 0x7f838c, mid: 0x5d626b, peak: 0x31353d,   // valley darkened from #8b8f96 for ink on paper
         glow: 0xfcfcfb, settled: 0x474c55, trail: 0x9a9fa8,
         clockInk: 0x23262c, clockShadow: 0xf7f6f2)
+
+    // MARK: Glacier — cold cyan-blue ice, bright rime peaks. (Ramp/sky designed in
+    // the preview; walker + clock derived in-family: frost glow, mid-cyan settle,
+    // recessive teal trail, clock ink at the value extreme with the sky as its halo.)
+    private static let glacierDark = Palette.make(
+        id: .dark, tag: PalettePreset.glacier.rawValue,
+        sky: [(0, 0x101a24), (0.25, 0x0c1520), (0.5, 0x080f18), (0.75, 0x050a11), (1, 0x04080d)],
+        valley: 0x2f5a6e, mid: 0x5b93a8, peak: 0xc6e3ed,
+        glow: 0xe3f2f7, settled: 0x86bccc, trail: 0x497f92,
+        clockInk: 0xdcecf2, clockShadow: 0x04080d)
+    private static let glacierLight = Palette.make(
+        id: .light, tag: PalettePreset.glacier.rawValue,
+        sky: [(0, 0xeef4f7), (0.3, 0xdfe9ee), (0.6, 0xc8d9e1), (0.82, 0xbaccd6), (1, 0xaec4d0)],
+        valley: 0x274956, mid: 0x3f6b7a, peak: 0x5e8a99,
+        glow: 0xf4f9fb, settled: 0x3f6b7a, trail: 0x7fa0ac,
+        clockInk: 0x14313b, clockShadow: 0xeef4f7)
+
+    // MARK: Heather & Slate — cool slate with a faint violet drift.
+    private static let heatherDark = Palette.make(
+        id: .dark, tag: PalettePreset.heatherSlate.rawValue,
+        sky: [(0, 0x1c1b26), (0.25, 0x17161f), (0.5, 0x121119), (0.75, 0x0d0c13), (1, 0x070610)],
+        valley: 0x4a4d63, mid: 0x7d7f9c, peak: 0xcdd0e0,
+        glow: 0xe9e9f1, settled: 0x9a9cb4, trail: 0x63657e,
+        clockInk: 0xdcdce7, clockShadow: 0x070610)
+    private static let heatherLight = Palette.make(
+        id: .light, tag: PalettePreset.heatherSlate.rawValue,
+        sky: [(0, 0xf2f1f6), (0.3, 0xe7e6ee), (0.6, 0xd5d4e0), (0.82, 0xc8c7d5), (1, 0xbdbcc9)],
+        valley: 0x33344a, mid: 0x55566e, peak: 0x74768c,
+        glow: 0xf6f5fa, settled: 0x55566e, trail: 0x9091a4,
+        clockInk: 0x222334, clockShadow: 0xf2f1f6)
+
+    // MARK: Graphite & Copper — Sumi-e graphite base, one restrained copper glint at peak.
+    private static let graphiteDark = Palette.make(
+        id: .dark, tag: PalettePreset.graphiteCopper.rawValue,
+        sky: [(0, 0x1a1b1d), (0.25, 0x141517), (0.5, 0x0e0f10), (0.75, 0x09090a), (1, 0x050505)],
+        valley: 0x565a5f, mid: 0x8a7d6e, peak: 0xd9a878,
+        glow: 0xf0ece6, settled: 0xc4936a, trail: 0x6a6b6d,
+        clockInk: 0xe4e2df, clockShadow: 0x050505)
+    private static let graphiteLight = Palette.make(
+        id: .light, tag: PalettePreset.graphiteCopper.rawValue,
+        sky: [(0, 0xf6f5f3), (0.3, 0xeeece9), (0.6, 0xe0ded9), (0.82, 0xd5d2cd), (1, 0xcbc9c6)],
+        valley: 0x3a3d40, mid: 0x6e5f4e, peak: 0x9c6f42,
+        glow: 0xf8f6f3, settled: 0x9c6f42, trail: 0x8f8c88,
+        clockInk: 0x2a2b2d, clockShadow: 0xf6f5f3)
+
+    // MARK: Basalt & Ash — warm-neutral grays, no hue. Soft counterpart to Sumi-e.
+    private static let basaltDark = Palette.make(
+        id: .dark, tag: PalettePreset.basaltAsh.rawValue,
+        sky: [(0, 0x1b1a18), (0.25, 0x151412), (0.5, 0x0f0e0c), (0.75, 0x090807), (1, 0x060504)],
+        valley: 0x5a5750, mid: 0x8c8578, peak: 0xd7ccb8,
+        glow: 0xefebe3, settled: 0xb0a894, trail: 0x6c675e,
+        clockInk: 0xe6e2da, clockShadow: 0x060504)
+    private static let basaltLight = Palette.make(
+        id: .light, tag: PalettePreset.basaltAsh.rawValue,
+        sky: [(0, 0xf5f3ee), (0.3, 0xece9e2), (0.6, 0xddd9cf), (0.82, 0xd3cec2), (1, 0xc9c4b8)],
+        valley: 0x3c3a34, mid: 0x6b6456, peak: 0x938a74,
+        glow: 0xf7f5f0, settled: 0x6b6456, trail: 0x969084,
+        clockInk: 0x2b2a26, clockShadow: 0xf5f3ee)
+
+    // MARK: Bordeaux Night — oxblood wine on charcoal, deep & desaturated warm.
+    private static let bordeauxDark = Palette.make(
+        id: .dark, tag: PalettePreset.bordeauxNight.rawValue,
+        sky: [(0, 0x1d1417), (0.25, 0x160f12), (0.5, 0x100a0c), (0.75, 0x0b0607), (1, 0x070405)],
+        valley: 0x6b3138, mid: 0xa15650, peak: 0xd99a86,
+        glow: 0xf2ddd6, settled: 0xc47a6a, trail: 0x7e474b,
+        clockInk: 0xecdcd7, clockShadow: 0x070405)
+    private static let bordeauxLight = Palette.make(
+        id: .light, tag: PalettePreset.bordeauxNight.rawValue,
+        sky: [(0, 0xf5eeec), (0.3, 0xeee0de), (0.6, 0xe0cbca), (0.82, 0xd6bfbf), (1, 0xcbb4b4)],
+        valley: 0x4a2328, mid: 0x7d4842, peak: 0xa86a52,
+        glow: 0xf8f0ee, settled: 0x7d4842, trail: 0xa8888a,
+        clockInk: 0x341a1d, clockShadow: 0xf5eeec)
 }

@@ -35,10 +35,11 @@ final class TerrainWallpaperView: NSView {
     }
 
     init(frame: NSRect, palette: Palette, showWalkers: Bool,
-         lightingEnabled: Bool, zoomOut: Double) {
+         lightingEnabled: Bool, zoomOut: Double, breathStrength: Double) {
         self.renderer = TerrainRenderer(palette: palette, animateWalkers: showWalkers)
         renderer.lightingEnabled = lightingEnabled   // Eye-Dome Lighting shape cue
         renderer.zoomOut = zoomOut
+        renderer.breathStrength = breathStrength
         super.init(frame: frame)
         wantsLayer = true
         layer?.isOpaque = true
@@ -70,6 +71,12 @@ final class TerrainWallpaperView: NSView {
     /// Set the camera pull-back live. Same immediate-redraw treatment as above.
     func setZoomOut(_ z: Double) {
         renderer.zoomOut = z
+        setNeedsDisplay(bounds)
+    }
+
+    /// Set the breathing-motion strength live. Same immediate-redraw treatment.
+    func setBreathStrength(_ s: Double) {
+        renderer.breathStrength = s
         setNeedsDisplay(bounds)
     }
 

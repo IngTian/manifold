@@ -40,6 +40,7 @@ final class ManifoldView: ScreenSaverView {
         self.renderer = TerrainRenderer(palette: .dark, animateWalkers: settings.showWalkers)
         renderer.lightingEnabled = settings.lightingEnabled   // Eye-Dome Lighting shape cue
         renderer.zoomOut = settings.zoomLevel
+        renderer.breathStrength = settings.breathStrength
         self.startTime = Date()
         super.init(frame: frame, isPreview: isPreview)
 
@@ -60,6 +61,7 @@ final class ManifoldView: ScreenSaverView {
         startTime = Date()
         renderer.lightingEnabled = settings.lightingEnabled
         renderer.zoomOut = settings.zoomLevel
+        renderer.breathStrength = settings.breathStrength
         renderer.setPaletteImmediately(currentPalette()) // no fade when (re)starting
         renderer.setAnimateWalkers(settings.showWalkers)
         configureFormatters()
@@ -287,6 +289,7 @@ final class ManifoldView: ScreenSaverView {
         configureFormatters()
         renderer.lightingEnabled = settings.lightingEnabled
         renderer.zoomOut = settings.zoomLevel
+        renderer.breathStrength = settings.breathStrength
         renderer.setPalette(currentPalette())
         renderer.setAnimateWalkers(settings.showWalkers)
         setNeedsDisplay(bounds)

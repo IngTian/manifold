@@ -266,6 +266,13 @@ final class TerrainRenderer {
         set { projector.zoomOut = newValue }
     }
 
+    /// Breathing-motion strength: a multiplier on the field's breathing amplitude.
+    /// 1.0 = the tuned default (the shipped 0.04 amplitude); 0 = perfectly still;
+    /// >1 = livelier. Scales the vertical wobble of both the terrain dots and the
+    /// walkers together, so the whole scene breathes in proportion. Doesn't touch
+    /// EDL (precomputed on the *base* elevation, independent of the wobble).
+    var breathStrength: Double = 1.0
+
     // Fixed light direction (unit, world x=n,y=e,z=up). Mostly overhead, tipped
     // slightly toward the viewer/left so the relief has a consistent, readable
     // gradient rather than being perfectly flat.
@@ -472,7 +479,7 @@ final class TerrainRenderer {
         drawSky(in: ctx, size: size)
 
         let x = nowMs / 1000.0
-        let breathAmp = animate ? 0.04 : 0.0   // y in terrain.js
+        let breathAmp = animate ? 0.04 * breathStrength : 0.0   // y in terrain.js, scaled by the user's strength
         let breathFreq = 0.4                    // I
 
         // Grow the dot radius with the projection scale so the pointillist texture
