@@ -39,6 +39,7 @@ final class WallpaperSettings {
     private let kZoomLevel = "zoomLevel"
     private let kLighting = "lightingEnabled"
     private let kPalettePreset = "palettePreset"
+    private let kBreathStrength = "breathStrength"
 
     /// Shipping default footer — placeholder text, personalized per install.
     static let defaultFooter = "Lorem Ipsum"
@@ -46,6 +47,9 @@ final class WallpaperSettings {
     /// Camera pull-back (renderer `zoomOut`) default. The menu offers a few discrete
     /// steps (a menu can't host a slider).
     static let defaultZoom = 0.85
+
+    /// Breathing-motion strength multiplier default. The menu offers discrete steps.
+    static let defaultBreath = 1.0
 
     init(suiteName: String = "com.ingtian.manifold.wallpaper") {
         self.defaults = UserDefaults(suiteName: suiteName) ?? .standard
@@ -58,6 +62,7 @@ final class WallpaperSettings {
             kZoomLevel: WallpaperSettings.defaultZoom,
             kLighting: true,          // Eye-Dome Lighting on by default — the shape cue
             kPalettePreset: PalettePreset.classic.rawValue,
+            kBreathStrength: WallpaperSettings.defaultBreath,
         ])
     }
 
@@ -108,5 +113,15 @@ final class WallpaperSettings {
     var palettePreset: PalettePreset {
         get { PalettePreset(rawValue: defaults.integer(forKey: kPalettePreset)) ?? .classic }
         set { defaults.set(newValue.rawValue, forKey: kPalettePreset) }
+    }
+
+    /// Breathing-motion strength (renderer `breathStrength`). Clamped to the same
+    /// 0…2 range the saver uses so the two products behave identically.
+    var breathStrength: Double {
+        get {
+            let v = defaults.object(forKey: kBreathStrength) as? Double ?? WallpaperSettings.defaultBreath
+            return min(2.0, max(0.0, v))
+        }
+        set { defaults.set(min(2.0, max(0.0, newValue)), forKey: kBreathStrength) }
     }
 }

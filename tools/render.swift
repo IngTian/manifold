@@ -128,12 +128,14 @@ struct Render {
             ?? settings.palettePreset
         let lighting = env["LIGHTING"].map { $0 != "0" } ?? settings.lightingEnabled
         let zoom = env["ZOOM"].flatMap { Double($0) } ?? settings.zoomLevel
+        let breath = env["BREATH"].flatMap { Double($0) } ?? settings.breathStrength
         let palette = preset.palette(dark: wantDark)   // mirrors AppDelegate.resolvedPalette
-        print("Wallpaper — palette: \(preset.label) \(wantDark ? "dark" : "light"), lighting: \(lighting), zoom: \(zoom)")
+        print("Wallpaper — palette: \(preset.label) \(wantDark ? "dark" : "light"), lighting: \(lighting), zoom: \(zoom), breath: \(breath)")
 
         let renderer = TerrainRenderer(palette: palette, animateWalkers: false)
         renderer.lightingEnabled = lighting
         renderer.zoomOut = zoom
+        renderer.breathStrength = breath
         renderer.setPaletteImmediately(palette)
         let size = CGSize(width: width, height: height)
         ensureDir(outDir)

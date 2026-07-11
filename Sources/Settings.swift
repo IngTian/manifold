@@ -56,6 +56,7 @@ final class Settings {
     private let kZoomLevel = "zoomLevel"
     private let kLighting = "lightingEnabled"
     private let kPalettePreset = "palettePreset"
+    private let kBreathStrength = "breathStrength"
 
     /// Shipping default motto — placeholder text, personalized per install.
     static let defaultFooter = "Lorem Ipsum"
@@ -63,6 +64,10 @@ final class Settings {
     /// How far the camera pulls back — larger shows more terrain footprint. Matches
     /// the renderer's `Projector.zoomOut` default; the slider spans 0.6…1.15.
     static let defaultZoom = 0.85
+
+    /// Breathing-motion strength multiplier. 1.0 = the tuned default; the slider
+    /// spans 0…2 (0 = still, 2 = double the wobble).
+    static let defaultBreath = 1.0
 
     init(moduleName: String) {
         self.defaults = ScreenSaverDefaults(forModuleWithName: moduleName) ?? .standard
@@ -81,6 +86,7 @@ final class Settings {
             kZoomLevel: Settings.defaultZoom,
             kLighting: true, // Eye-Dome Lighting on by default — it's the shape cue
             kPalettePreset: PalettePreset.classic.rawValue,
+            kBreathStrength: Settings.defaultBreath,
         ])
     }
 
@@ -140,6 +146,15 @@ final class Settings {
     var palettePreset: PalettePreset {
         get { PalettePreset(rawValue: defaults.integer(forKey: kPalettePreset)) ?? .classic }
         set { defaults.set(newValue.rawValue, forKey: kPalettePreset) }
+    }
+
+    /// Breathing-motion strength (renderer `breathStrength`). Clamped to 0…2.
+    var breathStrength: Double {
+        get {
+            let v = defaults.object(forKey: kBreathStrength) as? Double ?? Settings.defaultBreath
+            return min(2.0, max(0.0, v))
+        }
+        set { defaults.set(min(2.0, max(0.0, newValue)), forKey: kBreathStrength) }
     }
 
     func synchronize() {

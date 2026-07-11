@@ -82,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
                 view.setPalette(palette, animated: false)
                 view.setLightingEnabled(settings.lightingEnabled)
                 view.setZoomOut(settings.zoomLevel)
+                view.setBreathStrength(settings.breathStrength)
                 view.setFooter(currentFooter())
                 continue
             }
@@ -91,7 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
                                             palette: palette,
                                             showWalkers: settings.showWalkers,
                                             lightingEnabled: settings.lightingEnabled,
-                                            zoomOut: settings.zoomLevel)
+                                            zoomOut: settings.zoomLevel,
+                                            breathStrength: settings.breathStrength)
             // Start at the governor's current rate, not the 30fps default — else a
             // display hot-plugged while on battery would animate at 30 not 15.
             view.maxFPS = governor.preferredFPS
@@ -303,6 +305,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
         zoomItem.submenu = zoomMenu
         menu.addItem(zoomItem)
 
+        // Motion — breathing-strength steps (a menu can't host a slider either).
+        let motionItem = NSMenuItem(title: "Motion", action: nil, keyEquivalent: "")
+        let motionMenu = NSMenu()
+        for step in Self.breathSteps {
+            let mi = NSMenuItem(title: step.label, action: #selector(pickBreath(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.tag = step.tag
+            mi.state = (abs(settings.breathStrength - step.value) < 0.001) ? .on : .off
+            motionMenu.addItem(mi)
+        }
+        motionItem.submenu = motionMenu
+        menu.addItem(motionItem)
+
         menu.addItem(.separator())
 
         let walkers = NSMenuItem(title: "Walker particles", action: #selector(toggleWalkers), keyEquivalent: "")
@@ -353,6 +368,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
         (3, 1.15, "Closest"),
     ]
 
+    /// Discrete breathing-strength choices (renderer `breathStrength`). 1.0 = the
+    /// tuned default; 0 = perfectly still. Listed still → lively.
+    private static let breathSteps: [(tag: Int, value: Double, label: String)] = [
+        (0, 0.0, "Still"),
+        (1, 0.5, "Subtle"),
+        (2, 1.0, "Default"),
+        (3, 1.5, "Lively"),
+    ]
+
     @objc private func pickTheme(_ sender: NSMenuItem) {
         guard let t = WallpaperTheme(rawValue: sender.tag) else { return }
         settings.theme = t
@@ -377,6 +401,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
         guard let step = Self.zoomSteps.first(where: { $0.tag == sender.tag }) else { return }
         settings.zoomLevel = step.value
         for v in views.values { v.setZoomOut(step.value) }
+        refreshMenu()
+    }
+
+    @objc private func pickBreath(_ sender: NSMenuItem) {
+        guard let step = Self.breathSteps.first(where: { $0.tag == sender.tag }) else { return }
+        settings.breathStrength = step.value
+        for v in views.values { v.setBreathStrength(step.value) }
         refreshMenu()
     }
 
