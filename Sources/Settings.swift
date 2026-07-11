@@ -53,9 +53,16 @@ final class Settings {
     private let kWalkers = "showWalkers"
     private let kFontDesign = "fontDesign"
     private let kFooter = "footerMessage"
+    private let kZoomLevel = "zoomLevel"
+    private let kLighting = "lightingEnabled"
+    private let kPalettePreset = "palettePreset"
 
     /// Shipping default motto — placeholder text, personalized per install.
     static let defaultFooter = "Lorem Ipsum"
+
+    /// How far the camera pulls back — larger shows more terrain footprint. Matches
+    /// the renderer's `Projector.zoomOut` default; the slider spans 0.6…1.15.
+    static let defaultZoom = 0.85
 
     init(moduleName: String) {
         self.defaults = ScreenSaverDefaults(forModuleWithName: moduleName) ?? .standard
@@ -71,6 +78,9 @@ final class Settings {
             kWalkers: false, // walkers off — the breathing field stands on its own
             kFontDesign: FontDesign.system.rawValue,
             kFooter: Settings.defaultFooter,
+            kZoomLevel: Settings.defaultZoom,
+            kLighting: true, // Eye-Dome Lighting on by default — it's the shape cue
+            kPalettePreset: PalettePreset.classic.rawValue,
         ])
     }
 
@@ -108,6 +118,28 @@ final class Settings {
     var footerMessage: String {
         get { defaults.string(forKey: kFooter) ?? Settings.defaultFooter }
         set { defaults.set(newValue, forKey: kFooter) }
+    }
+
+    /// Camera pull-back (renderer `zoomOut`). Clamped to the slider's 0.6…1.15 range
+    /// so a stray stored value can't wildly over/under-zoom.
+    var zoomLevel: Double {
+        get {
+            let v = defaults.object(forKey: kZoomLevel) as? Double ?? Settings.defaultZoom
+            return min(1.15, max(0.6, v))
+        }
+        set { defaults.set(min(1.15, max(0.6, newValue)), forKey: kZoomLevel) }
+    }
+
+    /// Eye-Dome Lighting (the shape cue). Default on.
+    var lightingEnabled: Bool {
+        get { defaults.bool(forKey: kLighting) }
+        set { defaults.set(newValue, forKey: kLighting) }
+    }
+
+    /// Chosen color scheme. Falls back to Classic for any unknown stored value.
+    var palettePreset: PalettePreset {
+        get { PalettePreset(rawValue: defaults.integer(forKey: kPalettePreset)) ?? .classic }
+        set { defaults.set(newValue.rawValue, forKey: kPalettePreset) }
     }
 
     func synchronize() {

@@ -36,9 +36,16 @@ final class WallpaperSettings {
     private let kPauseOnBattery = "pauseOnBattery"
     private let kShowFooter = "showFooter"
     private let kFooter = "footerMessage"
+    private let kZoomLevel = "zoomLevel"
+    private let kLighting = "lightingEnabled"
+    private let kPalettePreset = "palettePreset"
 
     /// Shipping default footer — placeholder text, personalized per install.
     static let defaultFooter = "Lorem Ipsum"
+
+    /// Camera pull-back (renderer `zoomOut`) default. The menu offers a few discrete
+    /// steps (a menu can't host a slider).
+    static let defaultZoom = 0.85
 
     init(suiteName: String = "com.ingtian.manifold.wallpaper") {
         self.defaults = UserDefaults(suiteName: suiteName) ?? .standard
@@ -48,6 +55,9 @@ final class WallpaperSettings {
             kPauseOnBattery: false,   // keep it alive on battery by default (15fps)
             kShowFooter: false,       // no signature line unless the user turns it on
             kFooter: WallpaperSettings.defaultFooter,
+            kZoomLevel: WallpaperSettings.defaultZoom,
+            kLighting: true,          // Eye-Dome Lighting on by default — the shape cue
+            kPalettePreset: PalettePreset.classic.rawValue,
         ])
     }
 
@@ -76,5 +86,27 @@ final class WallpaperSettings {
     var footerMessage: String {
         get { defaults.string(forKey: kFooter) ?? WallpaperSettings.defaultFooter }
         set { defaults.set(newValue, forKey: kFooter) }
+    }
+
+    /// Camera pull-back (renderer `zoomOut`). Clamped to the same 0.6…1.15 range the
+    /// saver uses so the two products behave identically.
+    var zoomLevel: Double {
+        get {
+            let v = defaults.object(forKey: kZoomLevel) as? Double ?? WallpaperSettings.defaultZoom
+            return min(1.15, max(0.6, v))
+        }
+        set { defaults.set(min(1.15, max(0.6, newValue)), forKey: kZoomLevel) }
+    }
+
+    /// Eye-Dome Lighting (the shape cue). Default on.
+    var lightingEnabled: Bool {
+        get { defaults.bool(forKey: kLighting) }
+        set { defaults.set(newValue, forKey: kLighting) }
+    }
+
+    /// Chosen color scheme. Falls back to Classic for any unknown stored value.
+    var palettePreset: PalettePreset {
+        get { PalettePreset(rawValue: defaults.integer(forKey: kPalettePreset)) ?? .classic }
+        set { defaults.set(newValue.rawValue, forKey: kPalettePreset) }
     }
 }

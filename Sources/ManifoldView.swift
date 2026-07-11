@@ -38,6 +38,8 @@ final class ManifoldView: ScreenSaverView {
         let settings = Settings(moduleName: moduleName)
         self.settings = settings
         self.renderer = TerrainRenderer(palette: .dark, animateWalkers: settings.showWalkers)
+        renderer.lightingEnabled = settings.lightingEnabled   // Eye-Dome Lighting shape cue
+        renderer.zoomOut = settings.zoomLevel
         self.startTime = Date()
         super.init(frame: frame, isPreview: isPreview)
 
@@ -56,6 +58,8 @@ final class ManifoldView: ScreenSaverView {
 
     override func startAnimation() {
         startTime = Date()
+        renderer.lightingEnabled = settings.lightingEnabled
+        renderer.zoomOut = settings.zoomLevel
         renderer.setPaletteImmediately(currentPalette()) // no fade when (re)starting
         renderer.setAnimateWalkers(settings.showWalkers)
         configureFormatters()
@@ -265,10 +269,11 @@ final class ManifoldView: ScreenSaverView {
     /// Palette for the current theme preference. `auto` follows the system
     /// appearance (like the site's prefers-color-scheme); light/dark force it.
     private func currentPalette() -> Palette {
+        let preset = settings.palettePreset
         switch settings.theme {
-        case .light: return .light
-        case .dark: return .dark
-        case .auto: return isSystemDark() ? .dark : .light
+        case .light: return preset.palette(dark: false)
+        case .dark: return preset.palette(dark: true)
+        case .auto: return preset.palette(dark: isSystemDark())
         }
     }
 
@@ -280,6 +285,8 @@ final class ManifoldView: ScreenSaverView {
     /// options change (from the config sheet).
     func refreshFromSettings() {
         configureFormatters()
+        renderer.lightingEnabled = settings.lightingEnabled
+        renderer.zoomOut = settings.zoomLevel
         renderer.setPalette(currentPalette())
         renderer.setAnimateWalkers(settings.showWalkers)
         setNeedsDisplay(bounds)

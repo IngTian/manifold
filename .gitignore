@@ -3,3 +3,9 @@ build/
 *.swiftmodule
 .DS_Store
 frames/
+
+# Local dev scratchpads — interactive rigs, one-off design artifacts, throwaway
+# experiments. Anything not meant to be published lives here. (The interactive
+# HTML rigs re-implement the terrain math in JS and would need hand-syncing with
+# the Swift renderer, so they're deliberately kept out of the repo.)
+local/

@@ -48,16 +48,22 @@ jobs:
             esac
           done
 
-      - name: Verify the saver's principal class loads
+      - name: Verify both products render headlessly
         run: |
           set -euo pipefail
           SDK="$(xcrun --show-sdk-path)"
-          swiftc -sdk "$SDK" -framework AppKit -framework ScreenSaver \
-            tools/render_frames.swift -o build/render_frames
+          swiftc -sdk "$SDK" -O -parse-as-library -module-name Render \
+            -framework AppKit -framework ScreenSaver \
+            Sources/Palette.swift Sources/TerrainRenderer.swift \
+            Sources/WallpaperApp/WallpaperSettings.swift tools/render.swift \
+            -o build/render
           mkdir -p build/frames
-          # Loads the built .saver exactly as the host does and renders a frame;
-          # fails if the principal class / renderer is broken.
-          THEME=dark ./build/render_frames "build/Manifold.saver" build/frames 800 500
+          # Saver: loads the built .saver exactly as the host does and renders a
+          # frame; fails if the principal class / renderer is broken.
+          THEME=dark ./build/render saver "build/Manifold.saver" build/frames 800 500
+          # Wallpaper: drives the shared renderer through a non-Classic palette so a
+          # regression in the preset/zoom/lighting wiring fails the build too.
+          PALETTE=1 THEME=dark ./build/render wallpaper build/frames 800 500
 
       - name: Upload build artifacts
         if: always()

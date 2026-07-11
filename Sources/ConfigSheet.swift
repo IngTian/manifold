@@ -17,8 +17,12 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
     private var secondsButton: NSButton!
     private var dateButton: NSButton!
     private var walkersButton: NSButton!
+    private var lightingButton: NSButton!
     private var themePopup: NSPopUpButton!
+    private var palettePopup: NSPopUpButton!
     private var fontPopup: NSPopUpButton!
+    private var zoomSlider: NSSlider!
+    private var zoomValueLabel: NSTextField!
     private var mottoField: NSTextField!
 
     init(settings: Settings, onChange: @escaping () -> Void) {
@@ -30,7 +34,7 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
 
     private func buildWindow() {
         let width: CGFloat = 420
-        let height: CGFloat = 420
+        let height: CGFloat = 540
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: [.titled],
@@ -78,6 +82,13 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
         walkersButton.state = settings.showWalkers ? .on : .off
         walkersButton.frame = NSRect(x: 24, y: y, width: width - 48, height: 20)
         content.addSubview(walkersButton)
+        y -= 30
+
+        lightingButton = makeCheckbox("Shape lighting (Eye-Dome)", action: #selector(toggleLighting))
+        lightingButton.state = settings.lightingEnabled ? .on : .off
+        lightingButton.toolTip = "Shades the dots by depth so the terrain reads as 3D."
+        lightingButton.frame = NSRect(x: 24, y: y, width: width - 48, height: 20)
+        content.addSubview(lightingButton)
         y -= 40
 
         let themeLabel = makeLabel("Theme", size: 12, weight: .regular)
@@ -92,6 +103,18 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
         content.addSubview(themePopup)
         y -= 36
 
+        let paletteLabel = makeLabel("Palette", size: 12, weight: .regular)
+        paletteLabel.frame = NSRect(x: 24, y: y, width: 60, height: 20)
+        content.addSubview(paletteLabel)
+
+        palettePopup = NSPopUpButton(frame: NSRect(x: 90, y: y - 3, width: 220, height: 26))
+        palettePopup.addItems(withTitles: PalettePreset.allCases.map { $0.label })
+        palettePopup.selectItem(at: settings.palettePreset.rawValue)
+        palettePopup.target = self
+        palettePopup.action = #selector(changePalette)
+        content.addSubview(palettePopup)
+        y -= 36
+
         let fontLabel = makeLabel("Font", size: 12, weight: .regular)
         fontLabel.frame = NSRect(x: 24, y: y, width: 60, height: 20)
         content.addSubview(fontLabel)
@@ -102,6 +125,27 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
         fontPopup.target = self
         fontPopup.action = #selector(changeFont)
         content.addSubview(fontPopup)
+        y -= 40
+
+        let zoomLabel = makeLabel("Zoom", size: 12, weight: .regular)
+        zoomLabel.frame = NSRect(x: 24, y: y, width: 60, height: 20)
+        content.addSubview(zoomLabel)
+
+        // zoomLevel is the renderer's `zoomOut` world→screen scale: LARGER draws the
+        // terrain bigger = zoomed IN (less footprint); SMALLER shows more footprint.
+        // So the slider runs 0.6 (wide, left) … 1.15 (close, right); the readout label
+        // (zoomText) names the bands to match.
+        zoomSlider = NSSlider(value: settings.zoomLevel, minValue: 0.6, maxValue: 1.15,
+                              target: self, action: #selector(changeZoom))
+        zoomSlider.frame = NSRect(x: 90, y: y - 2, width: 180, height: 24)
+        zoomSlider.isContinuous = true
+        content.addSubview(zoomSlider)
+
+        zoomValueLabel = makeLabel(zoomText(settings.zoomLevel), size: 11, weight: .regular)
+        zoomValueLabel.textColor = .secondaryLabelColor
+        zoomValueLabel.alignment = .right
+        zoomValueLabel.frame = NSRect(x: 278, y: y, width: 118, height: 18)
+        content.addSubview(zoomValueLabel)
         y -= 44
 
         let mottoLabel = makeLabel("Motto", size: 12, weight: .regular)
@@ -135,13 +179,39 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
     @objc private func toggleSeconds() { settings.showSeconds = (secondsButton.state == .on) }
     @objc private func toggleDate() { settings.showDate = (dateButton.state == .on) }
     @objc private func toggleWalkers() { settings.showWalkers = (walkersButton.state == .on) }
+    @objc private func toggleLighting() {
+        settings.lightingEnabled = (lightingButton.state == .on)
+        live()
+    }
     @objc private func changeTheme() {
         settings.theme = ThemePreference(rawValue: themePopup.indexOfSelectedItem) ?? .auto
+        live()
+    }
+    @objc private func changePalette() {
+        settings.palettePreset = PalettePreset(rawValue: palettePopup.indexOfSelectedItem) ?? .classic
         live()
     }
     @objc private func changeFont() {
         settings.fontDesign = FontDesign(rawValue: fontPopup.indexOfSelectedItem) ?? .system
         live()
+    }
+    @objc private func changeZoom() {
+        settings.zoomLevel = zoomSlider.doubleValue
+        zoomValueLabel.stringValue = zoomText(zoomSlider.doubleValue)
+        live()
+    }
+
+    /// A friendly right-anchored readout for the zoom slider (e.g. "close · 1.00×").
+    /// Smaller zoomOut shows more terrain (wide); larger zooms in (close).
+    private func zoomText(_ v: Double) -> String {
+        let name: String
+        switch v {
+        case ..<0.75: name = "wide"
+        case ..<0.95: name = "default"
+        case ..<1.08: name = "close"
+        default: name = "closest"
+        }
+        return String(format: "%@ · %.2f×", name, v)
     }
 
     /// Live-update the hosting view as controls change.
