@@ -17,9 +17,16 @@ animation on [ingtian.github.io](https://ingtian.github.io).
 *Manifold* — the terrain is literally a 2-manifold surface; the name also nods to
 manifold optimization and to many-folded mountain ranges (山水).
 
+<p align="center"><sub><b>Screen saver</b> — the terrain with a floating clock</sub></p>
 <p align="center">
-  <img src="docs/demo-dark.gif"  width="49%" alt="Manifold dark — cycling through the Classic, Nordic Slate, Glacier and Bordeaux Night palettes">
-  <img src="docs/demo-light.gif" width="49%" alt="Manifold light — cycling through the Classic, Sumi-e Ink, Basalt & Ash and Heather & Slate palettes">
+  <img src="docs/saver-dark.gif"  width="49%" alt="Manifold screen saver, dark — clock over terrain cycling through Classic, Nordic Slate, Glacier, Bordeaux Night">
+  <img src="docs/saver-light.gif" width="49%" alt="Manifold screen saver, light — clock over terrain cycling through Classic, Sumi-e Ink, Basalt & Ash, Heather & Slate">
+</p>
+
+<p align="center"><sub><b>Live wallpaper</b> — the same terrain, no clock, behind your desktop</sub></p>
+<p align="center">
+  <img src="docs/wallpaper-dark.gif"  width="49%" alt="Manifold live wallpaper, dark — terrain cycling through Classic, Nordic Slate, Glacier, Bordeaux Night">
+  <img src="docs/wallpaper-light.gif" width="49%" alt="Manifold live wallpaper, light — terrain cycling through Classic, Sumi-e Ink, Basalt & Ash, Heather & Slate">
 </p>
 
 <p align="center"><sub>Eye-Dome Lighting makes the sparse dots read as a solid 3-D
