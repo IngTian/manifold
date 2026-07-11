@@ -18,17 +18,24 @@ animation on [ingtian.github.io](https://ingtian.github.io).
 manifold optimization and to many-folded mountain ranges (山水).
 
 <p align="center">
-  <img src="docs/demo-dark.gif"  width="49%" alt="Manifold — dark theme">
-  <img src="docs/demo-light.gif" width="49%" alt="Manifold — light theme">
+  <img src="docs/demo-dark.gif"  width="49%" alt="Manifold dark — cycling through the Classic, Nordic Slate, Glacier and Bordeaux Night palettes">
+  <img src="docs/demo-light.gif" width="49%" alt="Manifold light — cycling through the Classic, Sumi-e Ink, Basalt & Ash and Heather & Slate palettes">
 </p>
 
+<p align="center"><sub>Eye-Dome Lighting makes the sparse dots read as a solid 3-D
+ridge; the clips cycle through a few of the eight palettes (each cross-fading like a
+theme switch).</sub></p>
+
 The terrain is a Gaussian-bump elevation field sampled on a 33×33 grid, projected
-through a fixed yaw+tilt rotation and drawn as ~1000 elevation-colored dots. The
-field breathes slowly, and glowing "walker" particles periodically trace
-gradient-descent paths downhill and settle with a soft glow. Colors (sky gradient,
-elevation ramp, walker glow) are the exact values from the site's `SkyWash.css`
-and `terrain.js`, for both light and dark themes — and switching themes **cross-fades**
-smoothly (a slow dawn/dusk transition) rather than snapping.
+through a fixed yaw+tilt rotation and drawn as ~1000 elevation-colored dots. Each dot
+is shaded by **Eye-Dome Lighting** — darkened and shrunk where its screen neighbors
+sit nearer — so the sparse cloud reads as a solid mountain rather than a flat scatter.
+The field breathes slowly, and glowing "walker" particles periodically trace
+gradient-descent paths downhill and settle with a soft glow. The **Classic** palette's
+colors (sky gradient, elevation ramp, walker glow) are the exact values from the site's
+`SkyWash.css` and `terrain.js`; seven more bundled palettes re-skin both light and dark.
+Switching theme *or* palette **cross-fades** smoothly (a slow dawn/dusk transition)
+rather than snapping.
 
 ## Install
 
