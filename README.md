@@ -139,13 +139,17 @@ their settings across restarts and updates.
      its screen neighbors occlude it, so the sparse point cloud reads as a solid
      3-D ridge instead of a flat scatter. Turn it off for the plain pointillist look.
    - **Theme** — Auto (match system) / Light / Dark
-   - **Palette** — the color scheme: **Classic** (the ported teal/earth look),
-     **Nordic Slate** (cool blue-gray), **Sumi-e Ink** (near-monochrome graphite).
-     The theme (light/dark) still picks the variant *within* the chosen palette, and
-     palette switches cross-fade like theme switches.
+   - **Palette** — the color scheme. Eight bundled presets: **Classic** (the ported
+     teal/earth look), **Nordic Slate** (cool blue-gray), **Sumi-e Ink** (monochrome
+     graphite), **Glacier** (cold cyan ice), **Heather & Slate** (muted violet-gray),
+     **Graphite & Copper** (graphite with one warm accent), **Basalt & Ash** (warm
+     neutral gray), **Bordeaux Night** (deep oxblood). The theme (light/dark) still
+     picks the variant *within* the chosen palette, and palette switches cross-fade.
    - **Font** — System (SF Pro) / Rounded / Serif (New York) / Monospace
    - **Zoom** — how much of the terrain fills the screen (0.60–1.15×); lower shows more
      of its footprint (wide), higher zooms in. Default `0.85`.
+   - **Motion** — breathing strength (0–2×): how much the terrain wobbles. `0` is
+     perfectly still, `1.0` the tuned default, higher is livelier.
    - **Motto** — a small italic signature line below the clock, right-aligned to
      the date (default `Lorem Ipsum`). Any text works, including pasted Unicode
      such as Greek letters (α, β, σ, …); leave empty to hide.
@@ -160,11 +164,13 @@ bar** (top-right). Everything is configured from that menu — there's no System
 Settings entry, because it's an app, not a `.saver`:
 
 - **Theme** — Auto (match system) / Light / Dark (switches cross-fade smoothly)
-- **Palette** — Classic / Nordic Slate / Sumi-e Ink (the same color schemes as the
-  screen saver; switches cross-fade)
+- **Palette** — the same eight presets as the screen saver (Classic, Nordic Slate,
+  Sumi-e Ink, Glacier, Heather & Slate, Graphite & Copper, Basalt & Ash, Bordeaux
+  Night); switches cross-fade
 - **Shape lighting** — toggle Eye-Dome Lighting (default on), the depth-shading that
   makes the terrain read as a 3-D ridge
 - **Zoom** — Wide / Default / Close / Closest — how much of the terrain is shown
+- **Motion** — Still / Subtle / Default / Lively — the breathing strength
 - **Walker particles** — toggle the glowing downhill walkers
 - **Pause on battery** — fully stop animating on battery (default off; it already
   drops to 15 fps and pauses when hidden regardless)
@@ -258,7 +264,7 @@ instead of leaving empty side margins.
 Sources/
   Palette.swift          SkyWash gradient + elevation ramps + walker colors (light/dark)
                            + palette blending for the theme cross-fade
-                           + PalettePreset color schemes (Classic/Nordic/Sumi-e)  [shared]
+                           + PalettePreset color schemes (8 presets)  [shared]
   TerrainRenderer.swift  Core Graphics port of terrain.js (field, projection, walkers)
                            + the animated theme cross-fade state machine  [shared]
   Settings.swift         ScreenSaverDefaults-backed options + FontDesign/ThemePreference
