@@ -281,7 +281,8 @@ scripts/
   install.sh             one-command clone + build + install
                            (arg: screensaver | wallpaper | all; also the updater)
 tools/
-  render_frames.swift    Headless verifier: loads the real .saver and renders PNGs
+  render.swift           Headless verifier: renders both products to PNGs
+                           (saver = loads the real .saver; wallpaper = shared renderer)
 ```
 
 ## Publishing / forking
@@ -305,17 +306,28 @@ build-locally flow above.
 
 ## Verifying rendering headlessly
 
-[`tools/render_frames.swift`](tools/render_frames.swift) loads the built bundle
-exactly as the screensaver host does (`init(frame:isPreview:)` on
-`NSPrincipalClass`) and captures frames — also used to generate the thumbnail:
+[`tools/render.swift`](tools/render.swift) renders either product to PNGs. In
+**saver** mode it loads the built `.saver` and drives it exactly as the screensaver
+host does (`init(frame:isPreview:)` on `NSPrincipalClass`) — proving the real
+shipping bundle loads and draws. In **wallpaper** mode it drives the shared
+`TerrainRenderer` (the same engine the app uses) with the wallpaper's own settings,
+since the wallpaper is a plain app, not a loadable bundle.
 
 ```sh
 SDK="$(xcrun --show-sdk-path)"
-swiftc -sdk "$SDK" -framework AppKit -framework ScreenSaver \
-  tools/render_frames.swift -o build/render_frames
+swiftc -sdk "$SDK" -O -parse-as-library -module-name Render \
+  -framework AppKit -framework ScreenSaver \
+  Sources/Palette.swift Sources/TerrainRenderer.swift \
+  Sources/WallpaperApp/WallpaperSettings.swift tools/render.swift \
+  -o build/render
 mkdir -p build/frames
-THEME=dark  ./build/render_frames build/Manifold.saver build/frames 1600 1000
-THEME=light ./build/render_frames build/Manifold.saver build/frames 1600 1000
+
+# Saver: pass the built bundle. THEME forces light/dark.
+THEME=dark  ./build/render saver build/Manifold.saver build/frames 1600 1000
+THEME=light ./build/render saver build/Manifold.saver build/frames 1600 1000
+
+# Wallpaper: reads WallpaperSettings; PALETTE=<int> LIGHTING=0|1 ZOOM=<n> override.
+PALETTE=1 THEME=dark ./build/render wallpaper build/frames 1600 1000
 ```
 
 ## Notes

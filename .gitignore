@@ -4,9 +4,8 @@ build/
 .DS_Store
 frames/
 
-# Local dev scratchpads — interactive rigs that re-implement the terrain math in
-# JS to explore looks/palettes. Handy locally, but they'd need hand-syncing with
-# the Swift renderer, so they're deliberately not published.
-tools/terrain-explorer.html
-tools/palette-preview.html
-tools/palette-designs.json
+# Local dev scratchpads — interactive rigs, one-off design artifacts, throwaway
+# experiments. Anything not meant to be published lives here. (The interactive
+# HTML rigs re-implement the terrain math in JS and would need hand-syncing with
+# the Swift renderer, so they're deliberately kept out of the repo.)
+local/
