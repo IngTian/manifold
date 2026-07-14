@@ -29,9 +29,16 @@ manifold optimization and to many-folded mountain ranges (山水).
   <img src="docs/wallpaper-light.gif" width="49%" alt="Manifold live wallpaper, light — terrain cycling through Classic, Sumi-e Ink, Basalt & Ash, Heather & Slate">
 </p>
 
+<p align="center"><sub><b>Swappable surfaces</b> — the field morphs between eight math functions</sub></p>
+<p align="center">
+  <img src="docs/surfaces-dark.gif"  width="49%" alt="Manifold terrain morphing between surfaces, dark — Classic, Ackley, Rastrigin, Monkey-Saddle Rosette">
+  <img src="docs/surfaces-light.gif" width="49%" alt="Manifold terrain morphing between surfaces, light — Classic, Ackley, Rastrigin, Monkey-Saddle Rosette">
+</p>
+
 <p align="center"><sub>Eye-Dome Lighting makes the sparse dots read as a solid 3-D
-ridge; the clips cycle through a few of the eight palettes (each cross-fading like a
-theme switch).</sub></p>
+ridge; the palette clips cycle through a few of the eight palettes (each cross-fading
+like a theme switch), and the surface clips morph between the eight terrain functions
+(picked live from the options sheet / menu bar).</sub></p>
 
 The terrain is a height field `z = h(x, y)` sampled on a 33×33 grid, projected
 through a fixed yaw+tilt rotation and drawn as ~1000 elevation-colored dots. Each dot
