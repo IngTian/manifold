@@ -35,8 +35,9 @@ private struct Bump {
 /// 3-D shape at the fixed camera.
 ///
 /// Each non-classic case declares a NATIVE function `g` and its exact gradient
-/// over some native domain; `domainScale` maps the fixed sampling square `[-N,N]`
-/// into that domain, and `TerrainField` affine-fits `g`'s range onto the same
+/// over some native domain; `domainMap` maps the fixed sampling square `[-N,N]`
+/// into that domain (per axis: `sx`/`sy` scale, `ox`/`oy` offset), and
+/// `TerrainField` affine-fits `g`'s range onto the same
 /// elevation band the classic field occupies — so the fixed camera, color ramp,
 /// Eye-Dome Lighting and breathing all stay tuned for every surface without
 /// per-surface retuning. The affine fit is monotonic, so the closed-form gradient
@@ -281,9 +282,11 @@ struct TerrainField {
     /// Fraction trimmed off each tail when fitting (robust to a few extreme points).
     private static let fitTrim = 0.02
 
-    /// The classic field's [min, max] over the lattice — the band every other
-    /// surface is fitted onto. Computed once (the fit derives from the classic
-    /// field itself, so there are no free-floating magic target numbers).
+    /// The classic field's robust [p2, p98] band over the lattice (via `sampleRange`)
+    /// — the band every other surface is fitted onto. Computed once (the fit derives
+    /// from the classic field itself, so there are no free-floating magic target
+    /// numbers). Classic itself skips the fit via the identity path, so trimming its
+    /// own band here only defines the shared *target*, never classic's own output.
     private static let classicBand = sampleRange(.classic)
 
     init(function: TerrainFunction = .classic) {
@@ -676,12 +679,24 @@ final class TerrainRenderer {
     }
 
     /// Set the terrain function immediately with no morph (e.g. first appearance /
-    /// (re)start). Mirrors `setPaletteImmediately`.
+    /// (re)start). Mirrors `setPaletteImmediately`: the "no morph" contract is
+    /// UNCONDITIONAL — it always cancels any in-flight morph, even when `fn` already
+    /// equals the current function. (A morph in flight has field.function == its
+    /// TARGET already, so an early `guard fn != field.function` would return without
+    /// cancelling it — leaving the saver's startAnimation restart, which resets its
+    /// wall clock, to freeze the terrain on the pre-morph surface until nowMs climbs
+    /// past the stale morphStartMs. Cancelling here is what prevents that.)
     func setTerrainFunctionImmediately(_ fn: TerrainFunction) {
-        guard fn != field.function else { return }
+        morphActive = false
+        morphFrom = []
+        morphTo = []
+        guard fn != field.function else {
+            // Same target, but a morph may have been mid-flight: settle on it now.
+            grid = Self.buildGrid(field: field, projector: projector)
+            return
+        }
         field = TerrainField(function: fn)
         grid = Self.buildGrid(field: field, projector: projector)
-        morphActive = false
         walkers.removeAll()
     }
 
@@ -693,10 +708,17 @@ final class TerrainRenderer {
     /// snap `grid` to the target and end the morph. Cheap: one pass over ~1089 points.
     private func advanceMorph(atMs nowMs: Double) {
         guard morphActive else { return }
+        // The saver drives nowMs off the wall clock (Date()), so a backward system-clock
+        // step mid-morph could make raw negative and stall the reshape on the old surface.
+        // Guard against it: if the clock ever moves backward, re-anchor the morph start so
+        // progress only ever advances. (The wallpaper's monotonic elapsedMs never trips this.)
+        if nowMs < morphStartMs { morphStartMs = nowMs }
         let raw = (nowMs - morphStartMs) / morphDuration
         if raw >= 1 || morphFrom.count != morphTo.count {
-            grid = morphTo
+            grid = morphTo                       // grid keeps the target array (COW)
             morphActive = false
+            morphFrom = []                        // free the endpoint grids; both are
+            morphTo = []                          // rebuilt fresh on the next switch
             return
         }
         let t = ease(max(0, raw))
