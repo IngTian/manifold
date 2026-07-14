@@ -79,23 +79,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
             if let win = windows[id], let view = views[id] {
                 win.pin(to: screen)
                 view.frame = win.contentLayoutRect
-                view.setPalette(palette, animated: false)
-                view.setLightingEnabled(settings.lightingEnabled)
-                view.setZoomOut(settings.zoomLevel)
-                view.setBreathStrength(settings.breathStrength)
-                view.setTerrainFunction(settings.terrainFunction)
+                view.applyConfig(settings.terrainConfig, palette: palette)
                 view.setFooter(currentFooter())
                 continue
             }
 
             let win = WallpaperWindow(screen: screen)
             let view = TerrainWallpaperView(frame: NSRect(origin: .zero, size: screen.frame.size),
-                                            palette: palette,
-                                            showWalkers: settings.showWalkers,
-                                            lightingEnabled: settings.lightingEnabled,
-                                            zoomOut: settings.zoomLevel,
-                                            breathStrength: settings.breathStrength,
-                                            terrainFunction: settings.terrainFunction)
+                                            config: settings.terrainConfig,
+                                            palette: palette)
             // Start at the governor's current rate, not the 30fps default — else a
             // display hot-plugged while on battery would animate at 30 not 15.
             view.maxFPS = governor.preferredFPS

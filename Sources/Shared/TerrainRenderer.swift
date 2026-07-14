@@ -807,6 +807,32 @@ final class TerrainRenderer {
 
     func setAnimateWalkers(_ on: Bool) { self.animateWalkers = on }
 
+    /// Push a whole `TerrainConfig` to the engine in one call — the single routing
+    /// point that both products use, replacing the hand-copied "assign each knob"
+    /// blocks that used to live (and drift) across every view's init / start /
+    /// refresh path. `palette` is passed in already-resolved, because the two
+    /// products map their own theme enum (ThemePreference vs WallpaperTheme) to a
+    /// light/dark Palette differently — that resolution stays product-specific.
+    ///
+    /// `animated` picks the transition style for the palette and surface changes:
+    /// true = cross-fade / morph (a live user change), false = snap (first paint /
+    /// (re)start). The scalar knobs (lighting, zoom, breath, walkers) apply
+    /// instantly either way; each setter is a no-op when its value is unchanged, so
+    /// this is safe to call every frame.
+    func apply(_ config: TerrainConfig, palette: Palette, animated: Bool) {
+        lightingEnabled = config.lightingEnabled
+        zoomOut = config.zoomOut
+        breathStrength = config.breathStrength
+        setAnimateWalkers(config.showWalkers)
+        if animated {
+            setTerrainFunction(config.terrainFunction)
+            setPalette(palette)
+        } else {
+            setTerrainFunctionImmediately(config.terrainFunction)
+            setPaletteImmediately(palette)
+        }
+    }
+
     /// The clock ink/shadow to use *this frame*, matching the terrain's current
     /// cross-fade state so overlaid text fades in lockstep with the scene. Valid
     /// after a `render` call (or reflects the target palette before the first one).

@@ -34,18 +34,14 @@ final class TerrainWallpaperView: NSView {
         didSet { applyFrameRate() }
     }
 
-    init(frame: NSRect, palette: Palette, showWalkers: Bool,
-         lightingEnabled: Bool, zoomOut: Double, breathStrength: Double,
-         terrainFunction: TerrainFunction) {
-        self.renderer = TerrainRenderer(palette: palette, animateWalkers: showWalkers,
-                                        function: terrainFunction)
-        renderer.lightingEnabled = lightingEnabled   // Eye-Dome Lighting shape cue
-        renderer.zoomOut = zoomOut
-        renderer.breathStrength = breathStrength
+    init(frame: NSRect, config: TerrainConfig, palette: Palette) {
+        self.renderer = TerrainRenderer(palette: palette)
         super.init(frame: frame)
         wantsLayer = true
         layer?.isOpaque = true
         layerContentsRedrawPolicy = .duringViewResize
+        // First paint: snap every shared knob into place (no fade/morph).
+        renderer.apply(config, palette: palette, animated: false)
     }
 
     @available(*, unavailable)
@@ -95,6 +91,15 @@ final class TerrainWallpaperView: NSView {
             renderer.setTerrainFunctionImmediately(fn)
             setNeedsDisplay(bounds)
         }
+    }
+
+    /// Re-push every shared knob to an existing on-screen view (e.g. after a
+    /// display-parameter change). Animate the palette/surface transitions only while
+    /// running — while paused the frozen clock can't advance a morph/fade, so snap
+    /// (and force one redraw). Mirrors the per-knob setters, in one call.
+    func applyConfig(_ config: TerrainConfig, palette: Palette) {
+        renderer.apply(config, palette: palette, animated: isRunning)
+        if !isRunning { setNeedsDisplay(bounds) }
     }
 
     /// Set the bottom-left signature line. Pass nil or "" to hide it.

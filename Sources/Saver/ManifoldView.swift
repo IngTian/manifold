@@ -37,18 +37,15 @@ final class ManifoldView: ScreenSaverView {
             ?? "com.ingtian.manifold"
         let settings = Settings(moduleName: moduleName)
         self.settings = settings
-        self.renderer = TerrainRenderer(palette: .dark, animateWalkers: settings.showWalkers,
-                                        function: settings.terrainFunction)
-        renderer.lightingEnabled = settings.lightingEnabled   // Eye-Dome Lighting shape cue
-        renderer.zoomOut = settings.zoomLevel
-        renderer.breathStrength = settings.breathStrength
+        self.renderer = TerrainRenderer(palette: .dark)
         self.startTime = Date()
         super.init(frame: frame, isPreview: isPreview)
 
         animationTimeInterval = 1.0 / 30.0
         wantsLayer = true
         configureFormatters()
-        renderer.setPaletteImmediately(currentPalette()) // no fade on first build
+        // Push the whole shared config in one immediate (no-fade) apply on first build.
+        renderer.apply(settings.terrainConfig, palette: currentPalette(), animated: false)
     }
 
     @available(*, unavailable)
@@ -60,12 +57,8 @@ final class ManifoldView: ScreenSaverView {
 
     override func startAnimation() {
         startTime = Date()
-        renderer.lightingEnabled = settings.lightingEnabled
-        renderer.zoomOut = settings.zoomLevel
-        renderer.breathStrength = settings.breathStrength
-        renderer.setTerrainFunctionImmediately(settings.terrainFunction) // no morph when (re)starting
-        renderer.setPaletteImmediately(currentPalette()) // no fade when (re)starting
-        renderer.setAnimateWalkers(settings.showWalkers)
+        // Snap (no fade/morph) when (re)starting — one apply for every shared knob.
+        renderer.apply(settings.terrainConfig, palette: currentPalette(), animated: false)
         configureFormatters()
         super.startAnimation()
     }
@@ -289,12 +282,8 @@ final class ManifoldView: ScreenSaverView {
     /// options change (from the config sheet).
     func refreshFromSettings() {
         configureFormatters()
-        renderer.lightingEnabled = settings.lightingEnabled
-        renderer.zoomOut = settings.zoomLevel
-        renderer.breathStrength = settings.breathStrength
-        renderer.setTerrainFunction(settings.terrainFunction)
-        renderer.setPalette(currentPalette())
-        renderer.setAnimateWalkers(settings.showWalkers)
+        // A live options change — animate palette/surface transitions.
+        renderer.apply(settings.terrainConfig, palette: currentPalette(), animated: true)
         setNeedsDisplay(bounds)
     }
 

@@ -222,7 +222,7 @@ Settings entry, because it's an app, not a `.saver`:
 
 The scene is a small amount of closed-form math, ported verbatim from
 [`terrain.js`](https://ingtian.github.io) into
-[`TerrainRenderer.swift`](Sources/TerrainRenderer.swift). Here's the whole thing.
+[`TerrainRenderer.swift`](Sources/Shared/TerrainRenderer.swift). Here's the whole thing.
 
 **Elevation field.** The terrain is a sum of $M = 5$ Gaussian bumps over the
 plane $(x, y)$, scaled by $U = 1.7$:
@@ -307,16 +307,19 @@ instead of leaving empty side margins.
 
 ```
 Sources/
-  Palette.swift          SkyWash gradient + elevation ramps + walker colors (light/dark)
-                           + palette blending for the theme cross-fade
-                           + PalettePreset color schemes (8 presets)  [shared]
-  TerrainRenderer.swift  Core Graphics port of terrain.js (field, projection, walkers)
-                           + TerrainFunction surface gallery (8, closed-form gradients)
-                           + the animated theme cross-fade state machine  [shared]
-  Settings.swift         ScreenSaverDefaults-backed options + FontDesign/ThemePreference
-  ManifoldView.swift     ScreenSaverView principal class (draw, layout, config sheet)
-  ConfigSheet.swift      Programmatic AppKit options sheet
-  WallpaperApp/          The live-wallpaper agent app (reuses the two [shared] files):
+  Shared/                The framework-free engine, compiled into BOTH products:
+    Palette.swift          SkyWash gradient + elevation ramps + walker colors (light/dark)
+                             + palette blending for the theme cross-fade
+                             + PalettePreset color schemes (8 presets)
+    TerrainRenderer.swift  Core Graphics port of terrain.js (field, projection, walkers)
+                             + TerrainFunction surface gallery (8, closed-form gradients)
+                             + the animated theme cross-fade + surface-morph state machines
+    TerrainConfig.swift    the shared render knobs (single source of truth for key/default/clamp)
+  Saver/                 Screen-saver-only shell:
+    Settings.swift         ScreenSaverDefaults-backed options + FontDesign/ThemePreference
+    ManifoldView.swift     ScreenSaverView principal class (draw, layout, config sheet)
+    ConfigSheet.swift      Programmatic AppKit options sheet
+  WallpaperApp/          Live-wallpaper-only shell (reuses Shared/):
     main.swift             accessory-app entry point
     AppDelegate.swift      per-display windows, status-bar menu, theme, launch-at-login
     WallpaperWindow.swift  borderless NSWindow pinned at the desktop level
@@ -335,6 +338,8 @@ scripts/
 tools/
   render.swift           Headless verifier: renders both products to PNGs
                            (saver = loads the real .saver; wallpaper = shared renderer)
+  verify-math.swift      Math regression tests: every surface's analytic gradient vs
+                           finite differences, + classic-field fidelity (run in CI)
 ```
 
 ## Publishing / forking
@@ -369,7 +374,7 @@ since the wallpaper is a plain app, not a loadable bundle.
 SDK="$(xcrun --show-sdk-path)"
 swiftc -sdk "$SDK" -O -parse-as-library -module-name Render \
   -framework AppKit -framework ScreenSaver \
-  Sources/Palette.swift Sources/TerrainRenderer.swift \
+  Sources/Shared/*.swift \
   Sources/WallpaperApp/WallpaperSettings.swift tools/render.swift \
   -o build/render
 mkdir -p build/frames
