@@ -35,8 +35,10 @@ final class TerrainWallpaperView: NSView {
     }
 
     init(frame: NSRect, palette: Palette, showWalkers: Bool,
-         lightingEnabled: Bool, zoomOut: Double, breathStrength: Double) {
-        self.renderer = TerrainRenderer(palette: palette, animateWalkers: showWalkers)
+         lightingEnabled: Bool, zoomOut: Double, breathStrength: Double,
+         terrainFunction: TerrainFunction) {
+        self.renderer = TerrainRenderer(palette: palette, animateWalkers: showWalkers,
+                                        function: terrainFunction)
         renderer.lightingEnabled = lightingEnabled   // Eye-Dome Lighting shape cue
         renderer.zoomOut = zoomOut
         renderer.breathStrength = breathStrength
@@ -78,6 +80,21 @@ final class TerrainWallpaperView: NSView {
     func setBreathStrength(_ s: Double) {
         renderer.breathStrength = s
         setNeedsDisplay(bounds)
+    }
+
+    /// Switch the terrain to a different math surface. When the wallpaper is actually
+    /// animating, the change *morphs* (the renderer eases the shape over ~0.9 s, driven
+    /// by the displayLink). While paused (covered / asleep / locked) the animation clock
+    /// is frozen, so a morph couldn't progress — apply it instantly instead and force a
+    /// single redraw. Mirrors `setPalette`'s animated/immediate split; keeps all
+    /// transition timing inside the renderer with no external timers.
+    func setTerrainFunction(_ fn: TerrainFunction) {
+        if isRunning {
+            renderer.setTerrainFunction(fn)
+        } else {
+            renderer.setTerrainFunctionImmediately(fn)
+            setNeedsDisplay(bounds)
+        }
     }
 
     /// Set the bottom-left signature line. Pass nil or "" to hide it.

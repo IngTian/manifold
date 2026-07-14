@@ -20,6 +20,7 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
     private var lightingButton: NSButton!
     private var themePopup: NSPopUpButton!
     private var palettePopup: NSPopUpButton!
+    private var surfacePopup: NSPopUpButton!
     private var fontPopup: NSPopUpButton!
     private var zoomSlider: NSSlider!
     private var zoomValueLabel: NSTextField!
@@ -36,7 +37,7 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
 
     private func buildWindow() {
         let width: CGFloat = 420
-        let height: CGFloat = 584
+        let height: CGFloat = 620
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: [.titled],
@@ -115,6 +116,19 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
         palettePopup.target = self
         palettePopup.action = #selector(changePalette)
         content.addSubview(palettePopup)
+        y -= 36
+
+        let surfaceLabel = makeLabel("Surface", size: 12, weight: .regular)
+        surfaceLabel.frame = NSRect(x: 24, y: y, width: 60, height: 20)
+        content.addSubview(surfaceLabel)
+
+        surfacePopup = NSPopUpButton(frame: NSRect(x: 90, y: y - 3, width: 220, height: 26))
+        surfacePopup.addItems(withTitles: TerrainFunction.allCases.map { $0.label })
+        surfacePopup.selectItem(at: settings.terrainFunction.rawValue)
+        surfacePopup.toolTip = "The math surface the terrain draws — the walkers descend it by gradient descent."
+        surfacePopup.target = self
+        surfacePopup.action = #selector(changeSurface)
+        content.addSubview(surfacePopup)
         y -= 36
 
         let fontLabel = makeLabel("Font", size: 12, weight: .regular)
@@ -210,6 +224,10 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
     }
     @objc private func changePalette() {
         settings.palettePreset = PalettePreset(rawValue: palettePopup.indexOfSelectedItem) ?? .classic
+        live()
+    }
+    @objc private func changeSurface() {
+        settings.terrainFunction = TerrainFunction(rawValue: surfacePopup.indexOfSelectedItem) ?? .classic
         live()
     }
     @objc private func changeFont() {

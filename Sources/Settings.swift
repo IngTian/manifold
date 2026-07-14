@@ -57,6 +57,7 @@ final class Settings {
     private let kLighting = "lightingEnabled"
     private let kPalettePreset = "palettePreset"
     private let kBreathStrength = "breathStrength"
+    private let kTerrainFunction = "terrainFunction"
 
     /// Shipping default motto — placeholder text, personalized per install.
     static let defaultFooter = "Lorem Ipsum"
@@ -87,6 +88,7 @@ final class Settings {
             kLighting: true, // Eye-Dome Lighting on by default — it's the shape cue
             kPalettePreset: PalettePreset.classic.rawValue,
             kBreathStrength: Settings.defaultBreath,
+            kTerrainFunction: TerrainFunction.classic.rawValue,
         ])
     }
 
@@ -146,6 +148,12 @@ final class Settings {
     var palettePreset: PalettePreset {
         get { PalettePreset(rawValue: defaults.integer(forKey: kPalettePreset)) ?? .classic }
         set { defaults.set(newValue.rawValue, forKey: kPalettePreset) }
+    }
+
+    /// Chosen terrain height field. Falls back to Classic for any unknown value.
+    var terrainFunction: TerrainFunction {
+        get { TerrainFunction(rawValue: defaults.integer(forKey: kTerrainFunction)) ?? .classic }
+        set { defaults.set(newValue.rawValue, forKey: kTerrainFunction) }
     }
 
     /// Breathing-motion strength (renderer `breathStrength`). Clamped to 0…2.

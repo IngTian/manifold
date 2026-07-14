@@ -37,7 +37,8 @@ final class ManifoldView: ScreenSaverView {
             ?? "com.ingtian.manifold"
         let settings = Settings(moduleName: moduleName)
         self.settings = settings
-        self.renderer = TerrainRenderer(palette: .dark, animateWalkers: settings.showWalkers)
+        self.renderer = TerrainRenderer(palette: .dark, animateWalkers: settings.showWalkers,
+                                        function: settings.terrainFunction)
         renderer.lightingEnabled = settings.lightingEnabled   // Eye-Dome Lighting shape cue
         renderer.zoomOut = settings.zoomLevel
         renderer.breathStrength = settings.breathStrength
@@ -62,6 +63,7 @@ final class ManifoldView: ScreenSaverView {
         renderer.lightingEnabled = settings.lightingEnabled
         renderer.zoomOut = settings.zoomLevel
         renderer.breathStrength = settings.breathStrength
+        renderer.setTerrainFunctionImmediately(settings.terrainFunction) // no morph when (re)starting
         renderer.setPaletteImmediately(currentPalette()) // no fade when (re)starting
         renderer.setAnimateWalkers(settings.showWalkers)
         configureFormatters()
@@ -290,6 +292,7 @@ final class ManifoldView: ScreenSaverView {
         renderer.lightingEnabled = settings.lightingEnabled
         renderer.zoomOut = settings.zoomLevel
         renderer.breathStrength = settings.breathStrength
+        renderer.setTerrainFunction(settings.terrainFunction)
         renderer.setPalette(currentPalette())
         renderer.setAnimateWalkers(settings.showWalkers)
         setNeedsDisplay(bounds)

@@ -61,9 +61,10 @@ jobs:
           # Saver: loads the built .saver exactly as the host does and renders a
           # frame; fails if the principal class / renderer is broken.
           THEME=dark ./build/render saver "build/Manifold.saver" build/frames 800 500
-          # Wallpaper: drives the shared renderer through a non-Classic palette so a
-          # regression in the preset/zoom/lighting wiring fails the build too.
-          PALETTE=1 THEME=dark ./build/render wallpaper build/frames 800 500
+          # Wallpaper: drives the shared renderer through a non-Classic palette AND
+          # a non-Classic terrain function so a regression in the preset / zoom /
+          # lighting / surface wiring fails the build too.
+          PALETTE=1 FUNCTION=1 THEME=dark ./build/render wallpaper build/frames 800 500
 
       - name: Upload build artifacts
         if: always()

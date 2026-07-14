@@ -20,7 +20,7 @@ import Foundation
 
 // MARK: - Elevation field
 
-/// One Gaussian bump in the elevation field (terrain.js `rt` entries).
+/// One Gaussian bump in the classic elevation field (terrain.js `rt` entries).
 private struct Bump {
     let a: Double   // amplitude (signed)
     let cx: Double  // center x
@@ -28,11 +28,76 @@ private struct Bump {
     let s: Double   // spread (sigma)
 }
 
-/// The procedural terrain: elevation field + gradient + gradient-descent walker paths.
-/// Pure math, no rendering — mirrors tt(), Mt(), wt() from terrain.js.
-struct TerrainField {
-    // rt from terrain.js
-    private let bumps: [Bump] = [
+/// A named height field `z = h(x, y)` with a *closed-form* gradient. `.classic`
+/// is the shipped ingtian.github.io five-Gaussian field (returned verbatim). The
+/// rest are elegant analytic surfaces — classic optimization test functions,
+/// radial wavelets, and wave fields — picked to read cleanly as a sparse dotted
+/// 3-D shape at the fixed camera.
+///
+/// Each non-classic case declares a NATIVE function `g` and its exact gradient
+/// over some native domain; `domainMap` maps the fixed sampling square `[-N,N]`
+/// into that domain (per axis: `sx`/`sy` scale, `ox`/`oy` offset), and
+/// `TerrainField` affine-fits `g`'s range onto the same
+/// elevation band the classic field occupies — so the fixed camera, color ramp,
+/// Eye-Dome Lighting and breathing all stay tuned for every surface without
+/// per-surface retuning. The affine fit is monotonic, so the closed-form gradient
+/// carries through by the chain rule and the "walkers" keep tracing real
+/// gradient descent down whichever surface is showing.
+///
+/// Add a case here and it flows automatically into both config UIs (they
+/// enumerate `allCases`) and the persisted setting (rawValue) — exactly like
+/// `PalettePreset`.
+enum TerrainFunction: Int, CaseIterable {
+    case classic = 0
+    case ackley = 1
+    case himmelblau = 2
+    case rosenbrock = 3
+    case rastrigin = 4
+    case rosette = 5
+    case ripples = 6
+    case hexWaves = 7
+
+    /// Menu / popup label.
+    var label: String {
+        switch self {
+        case .classic:     return "Classic (Gaussian bumps)"
+        case .ackley:      return "Ackley (funnel)"
+        case .himmelblau:  return "Himmelblau (four minima)"
+        case .rosenbrock:  return "Rosenbrock (banana valley)"
+        case .rastrigin:   return "Rastrigin (dimpled dome)"
+        case .rosette:     return "Monkey-Saddle Rosette"
+        case .ripples:     return "Still Water (ripples)"
+        case .hexWaves:    return "Hex Interference"
+        }
+    }
+
+    /// The classic field is returned verbatim (no fit) so it stays byte-for-byte
+    /// identical to the shipped look.
+    var isClassic: Bool { self == .classic }
+
+    /// Map from the fixed world sampling square `[-N, N]` to this surface's native
+    /// domain: `native = scale · world + offset`, per axis. The `scale` sizes how much
+    /// of the surface fits the frame (chosen so 33×33 samples land across the
+    /// interesting region without aliasing — features stay above the ~4-grid-step
+    /// floor); the `offset` re-centers an asymmetric surface so its signature feature
+    /// sits in frame (only Rosenbrock needs it — its curved valley isn't centered on
+    /// the origin). Identity for classic (world == native).
+    fileprivate var domainMap: (sx: Double, sy: Double, ox: Double, oy: Double) {
+        let H = TerrainField.halfExtent
+        switch self {
+        case .classic:    return (1, 1, 0, 0)
+        case .ackley:     return (4.0 / H, 4.0 / H, 0, 0)     // native ±4 — one central funnel
+        case .himmelblau: return (4.6 / H, 4.6 / H, 0, 0)     // native ±4.6 — all four minima, framed tight
+        case .rosenbrock: return (1.6 / H, 1.6 / H, 0, 0.9)   // native x±1.6, y∈[-0.7,2.5] — centers the banana valley
+        case .rastrigin:  return (2.5 / H, 2.5 / H, 0, 0)     // native ±2.5 — period-2 dimple lattice
+        case .rosette:    return (4.0 / H, 4.0 / H, 0, 0)     // native ±4 — Gaussian window confines it
+        case .ripples:    return (6.0 / H, 6.0 / H, 0, 0)     // native ±6 — ~2 rings survive the envelope
+        case .hexWaves:   return (2.6 / H, 2.6 / H, 0, 0)     // native ±2.6 — λ≈2.86, ~18 samples/wave
+        }
+    }
+
+    /// `rt` from terrain.js — the classic field's five signed Gaussians.
+    private static let classicBumps: [Bump] = [
         Bump(a: -1.0,  cx: -1.4, cy: -0.5, s: 0.9),
         Bump(a: -0.65, cx: 1.5,  cy: 0.7,  s: 0.8),
         Bump(a: -0.5,  cx: 0.3,  cy: -1.3, s: 0.7),
@@ -40,38 +105,243 @@ struct TerrainField {
         Bump(a: 0.45,  cx: 1.0,  cy: -0.6, s: 0.7),
     ]
 
-    let U: Double = 1.7  // elevation scale
-    let N: Double = 2.6  // grid half-extent
-    let V: Double = 0.16 // grid step
+    // Tuning constants for the analytic surfaces. Frequencies (k*) are deliberately
+    // gentled below each function's textbook value so features span many grid steps
+    // and never alias into "static" on the sparse 33-sample lattice. The two "log"
+    // fields (Himmelblau, Rosenbrock) are log(1+…)-compressed: their raw walls are
+    // ~1000× the basin depth and would clip the whole field to one spike, and since
+    // log1p is monotonic the minima — and thus the walker descent paths — are
+    // unchanged (the gradient just carries a positive 1/(1+…) factor).
+    private static let ackleyB   = 0.5             // Ackley funnel steepness
+    private static let ackleyK   = Double.pi / 2   // Ackley cosine freq (gentled from 2π)
+    private static let rosenB    = 3.0             // Rosenbrock valley curvature (gentled from 100; framed on the valley)
+    private static let rastA     = 0.12            // Rastrigin bowl weight
+    private static let rastB     = 0.7             // Rastrigin dimple depth (k = π)
+    private static let rosetteS2 = 2.25            // Rosette Gaussian window, σ² (σ = 1.5)
+    private static let rippleS2  = 6.25            // Ripple Gaussian window, σ² (σ = 2.5)
+    private static let rippleK   = 1.5             // Ripple radial freq
+    private static let hexK      = 2.2             // Hex wave number
+    private static let hexA      = 0.75            // Hex amplitude
+
+    /// Native height `g(x, y)` (before the domain map / z-fit). For classic this
+    /// is the full terrain.js `tt()` (including the U = 1.7 scale).
+    fileprivate func rawElevation(_ x: Double, _ y: Double) -> Double {
+        switch self {
+        case .classic:
+            var t = 0.0
+            for r in Self.classicBumps {
+                let dx = x - r.cx, dy = y - r.cy
+                t += r.a * exp(-(dx * dx + dy * dy) / (2 * r.s * r.s))
+            }
+            return t * 1.7                                       // U
+
+        case .ackley:
+            // The canonical global-optimization funnel: a near-flat rippled plateau
+            // plunging to one central well. Radially ringed — glorious under EDL.
+            let b = Self.ackleyB, k = Self.ackleyK
+            let R = (0.5 * (x * x + y * y)).squareRoot()
+            return -20 * exp(-b * R) - exp(0.5 * (cos(k * x) + cos(k * y))) + 20 + M_E
+
+        case .himmelblau:
+            // Four equal minima separated by ridges — the textbook multi-basin map.
+            let a = x * x + y - 11, b = x + y * y - 7
+            return log1p(a * a + b * b)                          // log-compressed (monotone)
+
+        case .rosenbrock:
+            // The ill-conditioned "banana" — one crescent ravine curving to a basin.
+            let b = Self.rosenB, t = y - x * x
+            return log1p((1 - x) * (1 - x) + b * t * t)          // log-compressed (monotone)
+
+        case .rastrigin:
+            // A serene paraboloid quilted with a regular lattice of soft dimples —
+            // ordered structure, not noise. Local-vs-global basins for the walkers.
+            let a = Self.rastA, b = Self.rastB, p = Double.pi
+            return a * (x * x + y * y) - b * (cos(p * x) + cos(p * y))
+
+        case .rosette:
+            // A monkey saddle windowed by a Gaussian: a 120°-symmetric 3-petal
+            // pinwheel (three hills, three valleys) fading to a flat plain.
+            let m = x * x * x - 3 * x * y * y
+            return m * exp(-(x * x + y * y) / (2 * Self.rosetteS2))
+
+        case .ripples:
+            // A 山水 "raindrop crown": a bright center ringed by Gaussian-damped
+            // swells fading into stillness. The calmest pure-radial gesture.
+            let r = (x * x + y * y).squareRoot()
+            return exp(-(x * x + y * y) / (2 * Self.rippleS2)) * cos(Self.rippleK * r)
+
+        case .hexWaves:
+            // Three plane waves at 120° → a crystalline six-fold honeycomb of
+            // rounded swells and shallow hex basins. Perfectly regular, zero jitter.
+            let k = Self.hexK, s3 = 3.0.squareRoot() / 2
+            let t2 = k * (-x / 2 + s3 * y), t3 = k * (-x / 2 - s3 * y)
+            return Self.hexA * (cos(k * x) + cos(t2) + cos(t3))
+        }
+    }
+
+    /// Exact closed-form gradient `(∂g/∂x, ∂g/∂y)` in native coords. Every entry
+    /// is verified against finite differences (max error ~1e-9) — the walkers,
+    /// surface normals and Eye-Dome Lighting all depend on it being exact.
+    fileprivate func rawGradient(_ x: Double, _ y: Double) -> (Double, Double) {
+        switch self {
+        case .classic:
+            var gx = 0.0, gy = 0.0
+            for r in Self.classicBumps {
+                let dx = x - r.cx, dy = y - r.cy
+                let e = r.a * exp(-(dx * dx + dy * dy) / (2 * r.s * r.s))
+                gx += e * (-dx / (r.s * r.s))
+                gy += e * (-dy / (r.s * r.s))
+            }
+            return (gx * 1.7, gy * 1.7)
+
+        case .ackley:
+            let b = Self.ackleyB, k = Self.ackleyK
+            let R = (0.5 * (x * x + y * y)).squareRoot()
+            let e2 = exp(0.5 * (cos(k * x) + cos(k * y)))
+            // First term's factor 20·b·e^(−bR)·(x)/(2R); guard R at the origin (the
+            // lattice never lands on 0,0, but keep walkers/EDL safe from the cusp).
+            let Rg = max(R, 1e-12)
+            let f = 20 * b * exp(-b * R) / (2 * Rg)
+            return (f * x + e2 * 0.5 * k * sin(k * x),
+                    f * y + e2 * 0.5 * k * sin(k * y))
+
+        case .himmelblau:
+            let a = x * x + y - 11, b = x + y * y - 7
+            let H = a * a + b * b
+            // g = log(1+H) ⇒ ∇g = ∇H / (1+H).
+            return ((4 * x * a + 2 * b) / (1 + H), (2 * a + 4 * y * b) / (1 + H))
+
+        case .rosenbrock:
+            let b = Self.rosenB, t = y - x * x
+            let R = (1 - x) * (1 - x) + b * t * t
+            let Rx = -2 * (1 - x) - 4 * b * x * t, Ry = 2 * b * t
+            return (Rx / (1 + R), Ry / (1 + R))
+
+        case .rastrigin:
+            let a = Self.rastA, b = Self.rastB, p = Double.pi
+            return (2 * a * x + b * p * sin(p * x), 2 * a * y + b * p * sin(p * y))
+
+        case .rosette:
+            let s2 = Self.rosetteS2
+            let e = exp(-(x * x + y * y) / (2 * s2)), m = x * x * x - 3 * x * y * y
+            // ∇[m·e] = e·(∇m − (r/σ²)·m). ∇m = (3(x²−y²), −6xy).
+            return (e * (3 * (x * x - y * y) - (x / s2) * m),
+                    e * (-6 * x * y - (y / s2) * m))
+
+        case .ripples:
+            let s2 = Self.rippleS2, k = Self.rippleK
+            let r = (x * x + y * y).squareRoot()
+            if r < 1e-7 { return (0, 0) }                        // ∇=0 at the crown
+            let e = exp(-(x * x + y * y) / (2 * s2))
+            // d/dr[e·cos(kr)] = −e·(cos(kr)/σ² · r + k·sin(kr)); ∂r/∂x = x/r cancels the r.
+            let common = -e * (cos(k * r) / s2 + k * sin(k * r) / r)
+            return (x * common, y * common)
+
+        case .hexWaves:
+            let k = Self.hexK, A = Self.hexA, s3 = 3.0.squareRoot() / 2
+            let t2 = k * (-x / 2 + s3 * y), t3 = k * (-x / 2 - s3 * y)
+            return (-A * k * (sin(k * x) - 0.5 * sin(t2) - 0.5 * sin(t3)),
+                    -A * k * (s3 * sin(t2) - s3 * sin(t3)))
+        }
+    }
+}
+
+/// The procedural terrain for a chosen `TerrainFunction`: elevation field +
+/// gradient + gradient-descent walker paths. Pure math, no rendering — the
+/// classic case mirrors tt(), Mt(), wt() from terrain.js verbatim.
+struct TerrainField {
+    static let halfExtent = 2.6   // N: grid half-extent
+    static let step = 0.16        // V: grid step
+
+    /// The active height field.
+    let function: TerrainFunction
+
+    let N = TerrainField.halfExtent
+    let V = TerrainField.step
 
     /// Fixed walker start points (terrain.js `X`).
     let walkerStarts: [(Double, Double)] = [
         (-2, 1.6), (1.8, -1.8), (0.4, 2), (-1.6, -1.9), (2.1, 1.2), (-0.6, -0.4),
     ]
 
-    /// Elevation at (x, y) — terrain.js tt().
-    func elevation(_ n: Double, _ e: Double) -> Double {
-        var t = 0.0
-        for r in bumps {
-            let c = n - r.cx
-            let i = e - r.cy
-            t += r.a * exp(-(c * c + i * i) / (2 * r.s * r.s))
+    // Affine z-fit onto the classic field's elevation band, so every surface
+    // shares the tuned camera / color ramp / EDL / breathing:
+    //   worldZ = zScale · (raw − gMid) + zMid,
+    //   sampled at  nativeX = sx·worldX + ox,  nativeY = sy·worldY + oy.
+    // Identity for classic (zScale = 1, gMid = zMid, sx=sy=1, ox=oy=0), so classic
+    // is unchanged. The fit uses a ROBUST percentile band (p2…p98 of the lattice
+    // values) rather than raw min/max, so a few extreme corner points (e.g. the
+    // steep walls of a log-compressed test function) can't crush the contrast of the
+    // bulk — the shape reads instead of washing out flat/dim.
+    private let map: (sx: Double, sy: Double, ox: Double, oy: Double)
+    private let gMid: Double
+    private let zScale: Double
+    private let zMid: Double
+    private let identity: Bool
+
+    /// Fraction trimmed off each tail when fitting (robust to a few extreme points).
+    private static let fitTrim = 0.02
+
+    /// The classic field's robust [p2, p98] band over the lattice (via `sampleRange`)
+    /// — the band every other surface is fitted onto. Computed once (the fit derives
+    /// from the classic field itself, so there are no free-floating magic target
+    /// numbers). Classic itself skips the fit via the identity path, so trimming its
+    /// own band here only defines the shared *target*, never classic's own output.
+    private static let classicBand = sampleRange(.classic)
+
+    init(function: TerrainFunction = .classic) {
+        self.function = function
+        self.identity = function.isClassic
+        self.map = function.domainMap
+        let (loC, hiC) = TerrainField.classicBand
+        self.zMid = (loC + hiC) / 2
+        if function.isClassic {
+            self.gMid = (loC + hiC) / 2
+            self.zScale = 1
+        } else {
+            let (lo, hi) = TerrainField.sampleRange(function)   // robust p2…p98 band
+            self.gMid = (lo + hi) / 2
+            self.zScale = hi > lo ? (hiC - loC) / (hi - lo) : 1
         }
-        return t * U
     }
 
-    /// Gradient of the elevation field at (x, y) — terrain.js Mt().
+    /// Elevation at world (x, y) — the classic field's `tt()` for `.classic`
+    /// (verbatim), or a fitted analytic surface otherwise.
+    func elevation(_ n: Double, _ e: Double) -> Double {
+        if identity { return function.rawElevation(n, e) }
+        return zScale * (function.rawElevation(n * map.sx + map.ox, e * map.sy + map.oy) - gMid) + zMid
+    }
+
+    /// Gradient of the (fitted) elevation field at world (x, y). The chain rule keeps
+    /// it exactly closed-form: ∂/∂x of zScale·g(sx·x + ox) is zScale·sx·gₓ (the
+    /// constant offset drops out), so walkers descend the true surface.
     func gradient(_ n: Double, _ e: Double) -> (Double, Double) {
-        var t = 0.0
-        var r = 0.0
-        for c in bumps {
-            let i = n - c.cx
-            let d = e - c.cy
-            let u = c.a * exp(-(i * i + d * d) / (2 * c.s * c.s))
-            t += u * (-i / (c.s * c.s))
-            r += u * (-d / (c.s * c.s))
+        if identity { return function.rawGradient(n, e) }
+        let (gx, gy) = function.rawGradient(n * map.sx + map.ox, e * map.sy + map.oy)
+        return (zScale * map.sx * gx, zScale * map.sy * gy)
+    }
+
+    /// The robust elevation band of a function over the lattice: the [p2, p98]
+    /// percentiles of the values at the exact points the grid draws. Trimming the
+    /// tails keeps a handful of extreme samples (steep valley walls, a lone spike)
+    /// from dominating the affine fit and flattening the rest of the field.
+    private static func sampleRange(_ fn: TerrainFunction) -> (Double, Double) {
+        let m = fn.domainMap
+        var vals: [Double] = []
+        var a = -halfExtent
+        while a <= halfExtent {
+            var b = -halfExtent
+            while b <= halfExtent {
+                vals.append(fn.rawElevation(a * m.sx + m.ox, b * m.sy + m.oy))
+                b += step
+            }
+            a += step
         }
-        return (t * U, r * U)
+        vals.sort()
+        let n = vals.count
+        let lo = vals[Int(fitTrim * Double(n - 1))]
+        let hi = vals[Int((1 - fitTrim) * Double(n - 1))]
+        return lo < hi ? (lo, hi) : (vals.first ?? 0, vals.last ?? 1)
     }
 
     /// Gradient-descent path from a start point, resampled to 10 points — terrain.js wt().
@@ -182,9 +452,9 @@ private final class Walker {
 
 /// Renders the terrain scene into a Y-DOWN Core Graphics context.
 final class TerrainRenderer {
-    private let field = TerrainField()
+    private var field: TerrainField
     private var projector = Projector()
-    private let grid: [GridPoint]
+    private var grid: [GridPoint]
 
     private var palette: Palette
     /// The palette actually used for this frame's draw calls (== `palette` unless a
@@ -199,6 +469,17 @@ final class TerrainRenderer {
     private var fadeActive = false
     private let fadeDuration: Double = 650 // ms — a calm dawn/dusk transition
     private var lastNowMs: Double = 0
+
+    // Surface morph: when the terrain function changes, the (fixed) lattice stays put
+    // and each dot's baseZ / normal / EDL eases from the old field to the new one over
+    // `morphDuration`, so the landscape visibly *reshapes* rather than snapping. `grid`
+    // always holds the CURRENT-frame interpolated state (so the projection/render loop
+    // is untouched); `morphFrom`/`morphTo` hold the endpoint grids we blend between.
+    private var morphFrom: [GridPoint] = []
+    private var morphTo: [GridPoint] = []
+    private var morphStartMs: Double = 0
+    private var morphActive = false
+    private let morphDuration: Double = 900 // ms — a calm reshaping, a touch slower than the theme fade
 
     // Walker spawn state (terrain.js: m, T, F, j).
     private var walkers: [Walker] = []
@@ -343,15 +624,21 @@ final class TerrainRenderer {
         return RGB(rNorm: r, gNorm: g, bNorm: b)
     }
 
-    init(palette: Palette, animateWalkers: Bool = true) {
+    init(palette: Palette, animateWalkers: Bool = true, function: TerrainFunction = .classic) {
         self.palette = palette
         self.activePalette = palette
         self.fadeFrom = palette
         self.animateWalkers = animateWalkers
+        self.field = TerrainField(function: function)
+        self.grid = Self.buildGrid(field: field, projector: projector)
+    }
 
-        // Build the grid once, replicating terrain.js's float accumulation exactly
-        // so the point count matches (for(a=-N;a<=N;a+=V)).
-        let f = TerrainField()
+    /// Build the (static) grid for a field: sample elevation + surface normal at
+    /// every lattice point, then precompute the Eye-Dome-Lighting shade. Replicates
+    /// terrain.js's float accumulation exactly so the point count matches
+    /// (for(a=-N;a<=N;a+=V) → 33×33 = 1089). Called at init and whenever the terrain
+    /// function changes.
+    private static func buildGrid(field f: TerrainField, projector: Projector) -> [GridPoint] {
         var pts: [GridPoint] = []
         var a = -f.N
         while a <= f.N {
@@ -367,9 +654,91 @@ final class TerrainRenderer {
             }
             a += f.V
         }
-        Self.computeEDL(&pts, projector: projector)
-        self.grid = pts
+        computeEDL(&pts, projector: projector)
+        return pts
     }
+
+    /// Swap the terrain to a different height field, animating the change: the fixed
+    /// lattice stays put while each dot's height/normal/shading eases from the old
+    /// surface to the new one over `morphDuration` (see the morph state above). The
+    /// grid + EDL for the target are built once here (a one-shot ~1.2M-op recompute,
+    /// the camera being fixed); the per-frame blend is a cheap lerp. Clears in-flight
+    /// walkers, whose gradient-descent paths belonged to the old surface.
+    ///
+    /// A no-op if the function is unchanged, so callers can push it every frame. If a
+    /// morph is already in flight it redirects from the CURRENT (interpolated) grid, so
+    /// rapid menu-clicking never snaps.
+    func setTerrainFunction(_ fn: TerrainFunction) {
+        guard fn != field.function else { return }
+        morphFrom = grid                       // whatever is on screen right now (mid-morph ok)
+        field = TerrainField(function: fn)
+        morphTo = Self.buildGrid(field: field, projector: projector)
+        morphStartMs = lastNowMs
+        morphActive = true
+        walkers.removeAll()
+    }
+
+    /// Set the terrain function immediately with no morph (e.g. first appearance /
+    /// (re)start). Mirrors `setPaletteImmediately`: the "no morph" contract is
+    /// UNCONDITIONAL — it always cancels any in-flight morph, even when `fn` already
+    /// equals the current function. (A morph in flight has field.function == its
+    /// TARGET already, so an early `guard fn != field.function` would return without
+    /// cancelling it — leaving the saver's startAnimation restart, which resets its
+    /// wall clock, to freeze the terrain on the pre-morph surface until nowMs climbs
+    /// past the stale morphStartMs. Cancelling here is what prevents that.)
+    func setTerrainFunctionImmediately(_ fn: TerrainFunction) {
+        morphActive = false
+        morphFrom = []
+        morphTo = []
+        guard fn != field.function else {
+            // Same target, but a morph may have been mid-flight: settle on it now.
+            grid = Self.buildGrid(field: field, projector: projector)
+            return
+        }
+        field = TerrainField(function: fn)
+        grid = Self.buildGrid(field: field, projector: projector)
+        walkers.removeAll()
+    }
+
+    /// The active terrain function (the morph *target* once one starts).
+    var terrainFunction: TerrainFunction { field.function }
+
+    /// Advance the surface morph for `nowMs`: lerp each grid point's baseZ / normal /
+    /// EDL from `morphFrom` toward `morphTo` by the eased fraction. When it completes,
+    /// snap `grid` to the target and end the morph. Cheap: one pass over ~1089 points.
+    private func advanceMorph(atMs nowMs: Double) {
+        guard morphActive else { return }
+        // The saver drives nowMs off the wall clock (Date()), so a backward system-clock
+        // step mid-morph could make raw negative and stall the reshape on the old surface.
+        // Guard against it: if the clock ever moves backward, re-anchor the morph start so
+        // progress only ever advances. (The wallpaper's monotonic elapsedMs never trips this.)
+        if nowMs < morphStartMs { morphStartMs = nowMs }
+        let raw = (nowMs - morphStartMs) / morphDuration
+        if raw >= 1 || morphFrom.count != morphTo.count {
+            grid = morphTo                       // grid keeps the target array (COW)
+            morphActive = false
+            morphFrom = []                        // free the endpoint grids; both are
+            morphTo = []                          // rebuilt fresh on the next switch
+            return
+        }
+        let t = ease(max(0, raw))
+        var blended = morphTo                  // start from target (same count), overwrite fields
+        for i in 0..<blended.count {
+            let a = morphFrom[i], b = morphTo[i]
+            blended[i] = GridPoint(
+                x: b.x, y: b.y,                 // lattice is shared/fixed
+                baseZ: a.baseZ + (b.baseZ - a.baseZ) * t,
+                nx: a.nx + (b.nx - a.nx) * t,
+                ny: a.ny + (b.ny - a.ny) * t,
+                nz: a.nz + (b.nz - a.nz) * t,
+                edl: a.edl + (b.edl - a.edl) * t)
+        }
+        grid = blended
+    }
+
+    /// True while a surface morph is animating — used to suppress walker spawning
+    /// (their descent paths belong to a single, settled surface).
+    private var isMorphing: Bool { morphActive }
 
     /// Precompute the Eye-Dome-Lighting shade for every grid point (once; the camera
     /// is fixed and the terrain static). For each dot, gather its screen-space
@@ -476,6 +845,10 @@ final class TerrainRenderer {
             fadeFrom = palette
         }
 
+        // Advance the surface morph (updates `grid` in place to the interpolated
+        // shape for this frame). No-op when no morph is in flight.
+        advanceMorph(atMs: nowMs)
+
         drawSky(in: ctx, size: size)
 
         let x = nowMs / 1000.0
@@ -545,7 +918,10 @@ final class TerrainRenderer {
             fillCircle(ctx, cx: dot.sx, cy: dot.sy, r: max(0.5, radius))
         }
 
-        if animate && animateWalkers {
+        // Walkers descend a single settled surface, so hold them while morphing (a
+        // path traced across a reshaping field would look wrong). They resume — and
+        // respawn on the new surface — once the morph completes.
+        if animate && animateWalkers && !isMorphing {
             drawWalkers(in: ctx, width: width, height: height, nowMs: nowMs,
                         x: x, breathAmp: breathAmp, breathFreq: breathFreq, dotScale: dotScale)
         }

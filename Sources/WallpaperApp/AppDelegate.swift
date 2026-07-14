@@ -83,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
                 view.setLightingEnabled(settings.lightingEnabled)
                 view.setZoomOut(settings.zoomLevel)
                 view.setBreathStrength(settings.breathStrength)
+                view.setTerrainFunction(settings.terrainFunction)
                 view.setFooter(currentFooter())
                 continue
             }
@@ -93,7 +94,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
                                             showWalkers: settings.showWalkers,
                                             lightingEnabled: settings.lightingEnabled,
                                             zoomOut: settings.zoomLevel,
-                                            breathStrength: settings.breathStrength)
+                                            breathStrength: settings.breathStrength,
+                                            terrainFunction: settings.terrainFunction)
             // Start at the governor's current rate, not the 30fps default — else a
             // display hot-plugged while on battery would animate at 30 not 15.
             view.maxFPS = governor.preferredFPS
@@ -286,6 +288,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
         paletteItem.submenu = paletteMenu
         menu.addItem(paletteItem)
 
+        // Surface (terrain math function) — a submenu of the bundled height fields.
+        let surfaceItem = NSMenuItem(title: "Surface", action: nil, keyEquivalent: "")
+        let surfaceMenu = NSMenu()
+        for fn in TerrainFunction.allCases {
+            let mi = NSMenuItem(title: fn.label, action: #selector(pickSurface(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.tag = fn.rawValue
+            mi.state = (settings.terrainFunction == fn) ? .on : .off
+            surfaceMenu.addItem(mi)
+        }
+        surfaceItem.submenu = surfaceMenu
+        menu.addItem(surfaceItem)
+
         // Eye-Dome Lighting — the shape cue that makes the terrain read as 3D.
         let lighting = NSMenuItem(title: "Shape lighting", action: #selector(toggleLighting), keyEquivalent: "")
         lighting.target = self
@@ -388,6 +403,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, PlaybackGovernorDelega
         guard let p = PalettePreset(rawValue: sender.tag) else { return }
         settings.palettePreset = p
         applyTheme(animated: true)   // resolvedPalette() now folds in the preset
+        refreshMenu()
+    }
+
+    @objc private func pickSurface(_ sender: NSMenuItem) {
+        guard let fn = TerrainFunction(rawValue: sender.tag) else { return }
+        settings.terrainFunction = fn
+        for v in views.values { v.setTerrainFunction(fn) }
         refreshMenu()
     }
 

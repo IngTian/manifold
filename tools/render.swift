@@ -19,7 +19,8 @@
 //  terrain, so it isn't drawn here — palette/shape/zoom are what this verifies.)
 //
 //  THEME=light|dark forces the appearance in both modes (default dark). In wallpaper
-//  mode PALETTE=<int>, LIGHTING=0|1, ZOOM=<double> override the persisted settings.
+//  mode PALETTE=<int>, LIGHTING=0|1, ZOOM=<double>, FUNCTION=<int> override the
+//  persisted settings.
 //
 //  Compiled with `@main` + `-parse-as-library` alongside Palette.swift +
 //  TerrainRenderer.swift + WallpaperSettings.swift, under its OWN module name (not
@@ -129,10 +130,12 @@ struct Render {
         let lighting = env["LIGHTING"].map { $0 != "0" } ?? settings.lightingEnabled
         let zoom = env["ZOOM"].flatMap { Double($0) } ?? settings.zoomLevel
         let breath = env["BREATH"].flatMap { Double($0) } ?? settings.breathStrength
+        let fn = env["FUNCTION"].flatMap { Int($0) }.flatMap { TerrainFunction(rawValue: $0) }
+            ?? settings.terrainFunction
         let palette = preset.palette(dark: wantDark)   // mirrors AppDelegate.resolvedPalette
-        print("Wallpaper — palette: \(preset.label) \(wantDark ? "dark" : "light"), lighting: \(lighting), zoom: \(zoom), breath: \(breath)")
+        print("Wallpaper — palette: \(preset.label) \(wantDark ? "dark" : "light"), function: \(fn.label), lighting: \(lighting), zoom: \(zoom), breath: \(breath)")
 
-        let renderer = TerrainRenderer(palette: palette, animateWalkers: false)
+        let renderer = TerrainRenderer(palette: palette, animateWalkers: false, function: fn)
         renderer.lightingEnabled = lighting
         renderer.zoomOut = zoom
         renderer.breathStrength = breath
