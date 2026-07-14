@@ -40,6 +40,7 @@ final class WallpaperSettings {
     private let kLighting = "lightingEnabled"
     private let kPalettePreset = "palettePreset"
     private let kBreathStrength = "breathStrength"
+    private let kTerrainFunction = "terrainFunction"
 
     /// Shipping default footer — placeholder text, personalized per install.
     static let defaultFooter = "Lorem Ipsum"
@@ -63,6 +64,7 @@ final class WallpaperSettings {
             kLighting: true,          // Eye-Dome Lighting on by default — the shape cue
             kPalettePreset: PalettePreset.classic.rawValue,
             kBreathStrength: WallpaperSettings.defaultBreath,
+            kTerrainFunction: TerrainFunction.classic.rawValue,
         ])
     }
 
@@ -113,6 +115,12 @@ final class WallpaperSettings {
     var palettePreset: PalettePreset {
         get { PalettePreset(rawValue: defaults.integer(forKey: kPalettePreset)) ?? .classic }
         set { defaults.set(newValue.rawValue, forKey: kPalettePreset) }
+    }
+
+    /// Chosen terrain height field. Falls back to Classic for any unknown value.
+    var terrainFunction: TerrainFunction {
+        get { TerrainFunction(rawValue: defaults.integer(forKey: kTerrainFunction)) ?? .classic }
+        set { defaults.set(newValue.rawValue, forKey: kTerrainFunction) }
     }
 
     /// Breathing-motion strength (renderer `breathStrength`). Clamped to the same

@@ -33,7 +33,7 @@ manifold optimization and to many-folded mountain ranges (山水).
 ridge; the clips cycle through a few of the eight palettes (each cross-fading like a
 theme switch).</sub></p>
 
-The terrain is a Gaussian-bump elevation field sampled on a 33×33 grid, projected
+The terrain is a height field `z = h(x, y)` sampled on a 33×33 grid, projected
 through a fixed yaw+tilt rotation and drawn as ~1000 elevation-colored dots. Each dot
 is shaded by **Eye-Dome Lighting** — darkened and shrunk where its screen neighbors
 sit nearer — so the sparse cloud reads as a solid mountain rather than a flat scatter.
@@ -43,6 +43,17 @@ colors (sky gradient, elevation ramp, walker glow) are the exact values from the
 `SkyWash.css` and `terrain.js`; seven more bundled palettes re-skin both light and dark.
 Switching theme *or* palette **cross-fades** smoothly (a slow dawn/dusk transition)
 rather than snapping.
+
+The surface itself is selectable, too: the default **Classic** field is the site's
+five Gaussian bumps, and a **gallery of eight math surfaces** swaps in others — the
+classic optimization landscapes **Ackley**, **Himmelblau**, **Rosenbrock** and
+**Rastrigin**, plus a Gaussian-windowed **monkey-saddle rosette**, damped radial
+**ripples**, and a **hexagonal wave** lattice. Each has a closed-form gradient, so the
+walkers keep descending the *real* surface, and each is fitted to the same elevation
+band as Classic so the camera, colors and lighting stay tuned. (The optimization
+functions are apt: the walkers are literally gradient descent, so each surface becomes
+a live picture of basins of attraction, ill-conditioned valleys, and local-vs-global
+capture.)
 
 ## Install
 
@@ -159,6 +170,10 @@ their settings across restarts and updates.
      **Graphite & Copper** (graphite with one warm accent), **Basalt & Ash** (warm
      neutral gray), **Bordeaux Night** (deep oxblood). The theme (light/dark) still
      picks the variant *within* the chosen palette, and palette switches cross-fade.
+   - **Surface** — the terrain's math function. Eight bundled surfaces: **Classic**
+     (the site's Gaussian bumps), **Ackley**, **Himmelblau**, **Rosenbrock**,
+     **Rastrigin** (four optimization landscapes the walkers descend), a
+     **Monkey-Saddle Rosette**, **Still Water** (ripples), and **Hex Interference**.
    - **Font** — System (SF Pro) / Rounded / Serif (New York) / Monospace
    - **Zoom** — how much of the terrain fills the screen (0.60–1.15×); lower shows more
      of its footprint (wide), higher zooms in. Default `0.85`.
@@ -181,6 +196,9 @@ Settings entry, because it's an app, not a `.saver`:
 - **Palette** — the same eight presets as the screen saver (Classic, Nordic Slate,
   Sumi-e Ink, Glacier, Heather & Slate, Graphite & Copper, Basalt & Ash, Bordeaux
   Night); switches cross-fade
+- **Surface** — the same eight terrain functions as the screen saver (Classic, Ackley,
+  Himmelblau, Rosenbrock, Rastrigin, Monkey-Saddle Rosette, Still Water, Hex
+  Interference)
 - **Shape lighting** — toggle Eye-Dome Lighting (default on), the depth-shading that
   makes the terrain read as a 3-D ridge
 - **Zoom** — Wide / Default / Close / Closest — how much of the terrain is shown
@@ -218,6 +236,19 @@ Each bump $k$ has amplitude $a_k$ (signed — negative bumps carve valleys), cen
 $(c_{k,x}, c_{k,y})$, and spread $\sigma_k$. The field is sampled on a square grid
 $x, y \in [-N, N]$ with step $V$ ($N = 2.6,\ V = 0.16$), giving
 $\left(\lfloor 2N/V \rfloor + 1\right)^2 = 33 \times 33 = 1089$ points.
+
+**Surface gallery.** `h` is one of eight selectable surfaces (`Classic` above, plus
+Ackley, Himmelblau, Rosenbrock, Rastrigin, a Gaussian-windowed monkey saddle, damped
+ripples, and a hexagonal wave field). Each non-classic surface $g$ is evaluated over
+its own native domain and then affine-fitted onto the exact elevation band Classic
+occupies over the lattice — sample $g$ at $s\cdot(x,y)$ (a domain scale $s$) and map
+$h = z_{\text{scale}}\,(g - g_{\text{mid}}) + z_{\text{mid}}$ — so the fixed camera,
+color ramp, Eye-Dome Lighting and breathing stay tuned for every one. Because this fit
+is affine (hence monotonic), the closed-form gradient carries through by the chain rule
+($\nabla h = z_{\text{scale}}\,s\,\nabla g$) and the walkers still descend the real
+surface. The two steep test functions (Himmelblau, Rosenbrock) are $\log(1+\cdot)$
+-compressed first — also monotonic, so their minima and descent paths are unchanged
+while the ~1000× outer walls stop flattening the basins on a sparse cloud.
 
 **Gradient.** Walkers flow downhill along $-\nabla h$, which has a closed form
 (each bump contributes its own Gaussian times a linear factor):
@@ -280,6 +311,7 @@ Sources/
                            + palette blending for the theme cross-fade
                            + PalettePreset color schemes (8 presets)  [shared]
   TerrainRenderer.swift  Core Graphics port of terrain.js (field, projection, walkers)
+                           + TerrainFunction surface gallery (8, closed-form gradients)
                            + the animated theme cross-fade state machine  [shared]
   Settings.swift         ScreenSaverDefaults-backed options + FontDesign/ThemePreference
   ManifoldView.swift     ScreenSaverView principal class (draw, layout, config sheet)

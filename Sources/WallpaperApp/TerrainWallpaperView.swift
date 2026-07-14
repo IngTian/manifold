@@ -35,8 +35,10 @@ final class TerrainWallpaperView: NSView {
     }
 
     init(frame: NSRect, palette: Palette, showWalkers: Bool,
-         lightingEnabled: Bool, zoomOut: Double, breathStrength: Double) {
-        self.renderer = TerrainRenderer(palette: palette, animateWalkers: showWalkers)
+         lightingEnabled: Bool, zoomOut: Double, breathStrength: Double,
+         terrainFunction: TerrainFunction) {
+        self.renderer = TerrainRenderer(palette: palette, animateWalkers: showWalkers,
+                                        function: terrainFunction)
         renderer.lightingEnabled = lightingEnabled   // Eye-Dome Lighting shape cue
         renderer.zoomOut = zoomOut
         renderer.breathStrength = breathStrength
@@ -77,6 +79,13 @@ final class TerrainWallpaperView: NSView {
     /// Set the breathing-motion strength live. Same immediate-redraw treatment.
     func setBreathStrength(_ s: Double) {
         renderer.breathStrength = s
+        setNeedsDisplay(bounds)
+    }
+
+    /// Switch the terrain to a different math surface live. The renderer rebuilds
+    /// its grid + EDL (a one-shot recompute); redraw immediately even if paused.
+    func setTerrainFunction(_ fn: TerrainFunction) {
+        renderer.setTerrainFunction(fn)
         setNeedsDisplay(bounds)
     }
 
