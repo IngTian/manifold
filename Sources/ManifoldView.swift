@@ -63,7 +63,7 @@ final class ManifoldView: ScreenSaverView {
         renderer.lightingEnabled = settings.lightingEnabled
         renderer.zoomOut = settings.zoomLevel
         renderer.breathStrength = settings.breathStrength
-        renderer.setTerrainFunction(settings.terrainFunction)
+        renderer.setTerrainFunctionImmediately(settings.terrainFunction) // no morph when (re)starting
         renderer.setPaletteImmediately(currentPalette()) // no fade when (re)starting
         renderer.setAnimateWalkers(settings.showWalkers)
         configureFormatters()

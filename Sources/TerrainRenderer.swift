@@ -75,19 +75,23 @@ enum TerrainFunction: Int, CaseIterable {
     var isClassic: Bool { self == .classic }
 
     /// Map from the fixed world sampling square `[-N, N]` to this surface's native
-    /// domain: `native = domainScale * world`. 1 for classic (world == native).
-    /// Chosen so 33×33 samples land across the surface's interesting region without
-    /// aliasing (every feature stays well above the ~4-grid-step alias floor).
-    fileprivate var domainScale: Double {
+    /// domain: `native = scale · world + offset`, per axis. The `scale` sizes how much
+    /// of the surface fits the frame (chosen so 33×33 samples land across the
+    /// interesting region without aliasing — features stay above the ~4-grid-step
+    /// floor); the `offset` re-centers an asymmetric surface so its signature feature
+    /// sits in frame (only Rosenbrock needs it — its curved valley isn't centered on
+    /// the origin). Identity for classic (world == native).
+    fileprivate var domainMap: (sx: Double, sy: Double, ox: Double, oy: Double) {
+        let H = TerrainField.halfExtent
         switch self {
-        case .classic:    return 1
-        case .ackley:     return 4.0 / TerrainField.halfExtent  // native ±4 — one central funnel
-        case .himmelblau: return 5.0 / TerrainField.halfExtent  // native ±5 — all four minima inside
-        case .rosenbrock: return 2.0 / TerrainField.halfExtent  // native ±2 — the curved valley
-        case .rastrigin:  return 2.5 / TerrainField.halfExtent  // native ±2.5 — period-2 dimple lattice
-        case .rosette:    return 4.0 / TerrainField.halfExtent  // native ±4 — Gaussian window confines it
-        case .ripples:    return 6.0 / TerrainField.halfExtent  // native ±6 — ~2 rings survive the envelope
-        case .hexWaves:   return 2.6 / TerrainField.halfExtent  // native ±2.6 — λ≈2.86, ~18 samples/wave
+        case .classic:    return (1, 1, 0, 0)
+        case .ackley:     return (4.0 / H, 4.0 / H, 0, 0)     // native ±4 — one central funnel
+        case .himmelblau: return (4.6 / H, 4.6 / H, 0, 0)     // native ±4.6 — all four minima, framed tight
+        case .rosenbrock: return (1.6 / H, 1.6 / H, 0, 0.9)   // native x±1.6, y∈[-0.7,2.5] — centers the banana valley
+        case .rastrigin:  return (2.5 / H, 2.5 / H, 0, 0)     // native ±2.5 — period-2 dimple lattice
+        case .rosette:    return (4.0 / H, 4.0 / H, 0, 0)     // native ±4 — Gaussian window confines it
+        case .ripples:    return (6.0 / H, 6.0 / H, 0, 0)     // native ±6 — ~2 rings survive the envelope
+        case .hexWaves:   return (2.6 / H, 2.6 / H, 0, 0)     // native ±2.6 — λ≈2.86, ~18 samples/wave
         }
     }
 
@@ -109,7 +113,7 @@ enum TerrainFunction: Int, CaseIterable {
     // unchanged (the gradient just carries a positive 1/(1+…) factor).
     private static let ackleyB   = 0.5             // Ackley funnel steepness
     private static let ackleyK   = Double.pi / 2   // Ackley cosine freq (gentled from 2π)
-    private static let rosenB    = 2.0             // Rosenbrock valley curvature (gentled from 100)
+    private static let rosenB    = 3.0             // Rosenbrock valley curvature (gentled from 100; framed on the valley)
     private static let rastA     = 0.12            // Rastrigin bowl weight
     private static let rastB     = 0.7             // Rastrigin dimple depth (k = π)
     private static let rosetteS2 = 2.25            // Rosette Gaussian window, σ² (σ = 1.5)
@@ -261,13 +265,21 @@ struct TerrainField {
 
     // Affine z-fit onto the classic field's elevation band, so every surface
     // shares the tuned camera / color ramp / EDL / breathing:
-    //   worldZ = zScale · (raw − gMid) + zMid,  sampled at  native = domainScale · world.
-    // Identity for classic (zScale = 1, gMid = zMid), so classic is unchanged.
-    private let domainScale: Double
+    //   worldZ = zScale · (raw − gMid) + zMid,
+    //   sampled at  nativeX = sx·worldX + ox,  nativeY = sy·worldY + oy.
+    // Identity for classic (zScale = 1, gMid = zMid, sx=sy=1, ox=oy=0), so classic
+    // is unchanged. The fit uses a ROBUST percentile band (p2…p98 of the lattice
+    // values) rather than raw min/max, so a few extreme corner points (e.g. the
+    // steep walls of a log-compressed test function) can't crush the contrast of the
+    // bulk — the shape reads instead of washing out flat/dim.
+    private let map: (sx: Double, sy: Double, ox: Double, oy: Double)
     private let gMid: Double
     private let zScale: Double
     private let zMid: Double
     private let identity: Bool
+
+    /// Fraction trimmed off each tail when fitting (robust to a few extreme points).
+    private static let fitTrim = 0.02
 
     /// The classic field's [min, max] over the lattice — the band every other
     /// surface is fitted onto. Computed once (the fit derives from the classic
@@ -277,14 +289,14 @@ struct TerrainField {
     init(function: TerrainFunction = .classic) {
         self.function = function
         self.identity = function.isClassic
-        self.domainScale = function.domainScale
+        self.map = function.domainMap
         let (loC, hiC) = TerrainField.classicBand
         self.zMid = (loC + hiC) / 2
         if function.isClassic {
             self.gMid = (loC + hiC) / 2
             self.zScale = 1
         } else {
-            let (lo, hi) = TerrainField.sampleRange(function)
+            let (lo, hi) = TerrainField.sampleRange(function)   // robust p2…p98 band
             self.gMid = (lo + hi) / 2
             self.zScale = hi > lo ? (hiC - loC) / (hi - lo) : 1
         }
@@ -294,35 +306,39 @@ struct TerrainField {
     /// (verbatim), or a fitted analytic surface otherwise.
     func elevation(_ n: Double, _ e: Double) -> Double {
         if identity { return function.rawElevation(n, e) }
-        return zScale * (function.rawElevation(n * domainScale, e * domainScale) - gMid) + zMid
+        return zScale * (function.rawElevation(n * map.sx + map.ox, e * map.sy + map.oy) - gMid) + zMid
     }
 
-    /// Gradient of the (fitted) elevation field at world (x, y). The chain rule
-    /// keeps it exactly closed-form: ∂/∂x of zScale·g(domainScale·x) is
-    /// zScale·domainScale·gₓ, so walkers descend the true surface.
+    /// Gradient of the (fitted) elevation field at world (x, y). The chain rule keeps
+    /// it exactly closed-form: ∂/∂x of zScale·g(sx·x + ox) is zScale·sx·gₓ (the
+    /// constant offset drops out), so walkers descend the true surface.
     func gradient(_ n: Double, _ e: Double) -> (Double, Double) {
         if identity { return function.rawGradient(n, e) }
-        let (gx, gy) = function.rawGradient(n * domainScale, e * domainScale)
-        let f = zScale * domainScale
-        return (f * gx, f * gy)
+        let (gx, gy) = function.rawGradient(n * map.sx + map.ox, e * map.sy + map.oy)
+        return (zScale * map.sx * gx, zScale * map.sy * gy)
     }
 
-    /// Sample a function's elevation range over the lattice (the exact points the
-    /// grid draws) so the affine fit lands the rendered dots on the classic band.
+    /// The robust elevation band of a function over the lattice: the [p2, p98]
+    /// percentiles of the values at the exact points the grid draws. Trimming the
+    /// tails keeps a handful of extreme samples (steep valley walls, a lone spike)
+    /// from dominating the affine fit and flattening the rest of the field.
     private static func sampleRange(_ fn: TerrainFunction) -> (Double, Double) {
-        var lo = Double.infinity, hi = -Double.infinity
+        let m = fn.domainMap
+        var vals: [Double] = []
         var a = -halfExtent
         while a <= halfExtent {
             var b = -halfExtent
             while b <= halfExtent {
-                let v = fn.rawElevation(a * fn.domainScale, b * fn.domainScale)
-                if v < lo { lo = v }
-                if v > hi { hi = v }
+                vals.append(fn.rawElevation(a * m.sx + m.ox, b * m.sy + m.oy))
                 b += step
             }
             a += step
         }
-        return (lo, hi)
+        vals.sort()
+        let n = vals.count
+        let lo = vals[Int(fitTrim * Double(n - 1))]
+        let hi = vals[Int((1 - fitTrim) * Double(n - 1))]
+        return lo < hi ? (lo, hi) : (vals.first ?? 0, vals.last ?? 1)
     }
 
     /// Gradient-descent path from a start point, resampled to 10 points — terrain.js wt().
@@ -450,6 +466,17 @@ final class TerrainRenderer {
     private var fadeActive = false
     private let fadeDuration: Double = 650 // ms — a calm dawn/dusk transition
     private var lastNowMs: Double = 0
+
+    // Surface morph: when the terrain function changes, the (fixed) lattice stays put
+    // and each dot's baseZ / normal / EDL eases from the old field to the new one over
+    // `morphDuration`, so the landscape visibly *reshapes* rather than snapping. `grid`
+    // always holds the CURRENT-frame interpolated state (so the projection/render loop
+    // is untouched); `morphFrom`/`morphTo` hold the endpoint grids we blend between.
+    private var morphFrom: [GridPoint] = []
+    private var morphTo: [GridPoint] = []
+    private var morphStartMs: Double = 0
+    private var morphActive = false
+    private let morphDuration: Double = 900 // ms — a calm reshaping, a touch slower than the theme fade
 
     // Walker spawn state (terrain.js: m, T, F, j).
     private var walkers: [Walker] = []
@@ -628,19 +655,68 @@ final class TerrainRenderer {
         return pts
     }
 
-    /// Swap the terrain to a different height field. Rebuilds the grid + EDL (the
-    /// camera is fixed, so this is a one-shot recompute, ~1.2M ops) and clears any
-    /// in-flight walkers, whose gradient-descent paths belonged to the old surface.
-    /// A no-op if the function is unchanged, so callers can push it every frame.
+    /// Swap the terrain to a different height field, animating the change: the fixed
+    /// lattice stays put while each dot's height/normal/shading eases from the old
+    /// surface to the new one over `morphDuration` (see the morph state above). The
+    /// grid + EDL for the target are built once here (a one-shot ~1.2M-op recompute,
+    /// the camera being fixed); the per-frame blend is a cheap lerp. Clears in-flight
+    /// walkers, whose gradient-descent paths belonged to the old surface.
+    ///
+    /// A no-op if the function is unchanged, so callers can push it every frame. If a
+    /// morph is already in flight it redirects from the CURRENT (interpolated) grid, so
+    /// rapid menu-clicking never snaps.
     func setTerrainFunction(_ fn: TerrainFunction) {
         guard fn != field.function else { return }
+        morphFrom = grid                       // whatever is on screen right now (mid-morph ok)
         field = TerrainField(function: fn)
-        grid = Self.buildGrid(field: field, projector: projector)
+        morphTo = Self.buildGrid(field: field, projector: projector)
+        morphStartMs = lastNowMs
+        morphActive = true
         walkers.removeAll()
     }
 
-    /// The active terrain function.
+    /// Set the terrain function immediately with no morph (e.g. first appearance /
+    /// (re)start). Mirrors `setPaletteImmediately`.
+    func setTerrainFunctionImmediately(_ fn: TerrainFunction) {
+        guard fn != field.function else { return }
+        field = TerrainField(function: fn)
+        grid = Self.buildGrid(field: field, projector: projector)
+        morphActive = false
+        walkers.removeAll()
+    }
+
+    /// The active terrain function (the morph *target* once one starts).
     var terrainFunction: TerrainFunction { field.function }
+
+    /// Advance the surface morph for `nowMs`: lerp each grid point's baseZ / normal /
+    /// EDL from `morphFrom` toward `morphTo` by the eased fraction. When it completes,
+    /// snap `grid` to the target and end the morph. Cheap: one pass over ~1089 points.
+    private func advanceMorph(atMs nowMs: Double) {
+        guard morphActive else { return }
+        let raw = (nowMs - morphStartMs) / morphDuration
+        if raw >= 1 || morphFrom.count != morphTo.count {
+            grid = morphTo
+            morphActive = false
+            return
+        }
+        let t = ease(max(0, raw))
+        var blended = morphTo                  // start from target (same count), overwrite fields
+        for i in 0..<blended.count {
+            let a = morphFrom[i], b = morphTo[i]
+            blended[i] = GridPoint(
+                x: b.x, y: b.y,                 // lattice is shared/fixed
+                baseZ: a.baseZ + (b.baseZ - a.baseZ) * t,
+                nx: a.nx + (b.nx - a.nx) * t,
+                ny: a.ny + (b.ny - a.ny) * t,
+                nz: a.nz + (b.nz - a.nz) * t,
+                edl: a.edl + (b.edl - a.edl) * t)
+        }
+        grid = blended
+    }
+
+    /// True while a surface morph is animating — used to suppress walker spawning
+    /// (their descent paths belong to a single, settled surface).
+    private var isMorphing: Bool { morphActive }
 
     /// Precompute the Eye-Dome-Lighting shade for every grid point (once; the camera
     /// is fixed and the terrain static). For each dot, gather its screen-space
@@ -747,6 +823,10 @@ final class TerrainRenderer {
             fadeFrom = palette
         }
 
+        // Advance the surface morph (updates `grid` in place to the interpolated
+        // shape for this frame). No-op when no morph is in flight.
+        advanceMorph(atMs: nowMs)
+
         drawSky(in: ctx, size: size)
 
         let x = nowMs / 1000.0
@@ -816,7 +896,10 @@ final class TerrainRenderer {
             fillCircle(ctx, cx: dot.sx, cy: dot.sy, r: max(0.5, radius))
         }
 
-        if animate && animateWalkers {
+        // Walkers descend a single settled surface, so hold them while morphing (a
+        // path traced across a reshaping field would look wrong). They resume — and
+        // respawn on the new surface — once the morph completes.
+        if animate && animateWalkers && !isMorphing {
             drawWalkers(in: ctx, width: width, height: height, nowMs: nowMs,
                         x: x, breathAmp: breathAmp, breathFreq: breathFreq, dotScale: dotScale)
         }
