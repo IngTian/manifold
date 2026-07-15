@@ -149,9 +149,12 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
 
         // zoomLevel is the renderer's `zoomOut` world→screen scale: LARGER draws the
         // terrain bigger = zoomed IN (less footprint); SMALLER shows more footprint.
-        // So the slider runs 0.6 (wide, left) … 1.15 (close, right); the readout label
-        // (zoomText) names the bands to match.
-        zoomSlider = NSSlider(value: settings.zoomLevel, minValue: 0.6, maxValue: 1.15,
+        // The slider spans TerrainConfig.zoomRange (the single source of truth the
+        // store also clamps to), so widening that range widens the slider in lockstep;
+        // the readout label (zoomText) names the bands.
+        zoomSlider = NSSlider(value: settings.zoomLevel,
+                              minValue: TerrainConfig.zoomRange.lowerBound,
+                              maxValue: TerrainConfig.zoomRange.upperBound,
                               target: self, action: #selector(changeZoom))
         zoomSlider.frame = NSRect(x: 90, y: y - 2, width: 180, height: 24)
         zoomSlider.isContinuous = true
@@ -169,8 +172,11 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
         content.addSubview(motionLabel)
 
         // breathStrength scales the field's breathing amplitude: 0 = still … 2 =
-        // double. 1.0 is the tuned default; the readout (breathText) names the bands.
-        breathSlider = NSSlider(value: settings.breathStrength, minValue: 0.0, maxValue: 2.0,
+        // double. 1.0 is the tuned default; the slider spans TerrainConfig.breathRange
+        // (the store's clamp source of truth); the readout (breathText) names the bands.
+        breathSlider = NSSlider(value: settings.breathStrength,
+                                minValue: TerrainConfig.breathRange.lowerBound,
+                                maxValue: TerrainConfig.breathRange.upperBound,
                                 target: self, action: #selector(changeBreath))
         breathSlider.frame = NSRect(x: 90, y: y - 2, width: 180, height: 24)
         breathSlider.isContinuous = true

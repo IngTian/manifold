@@ -15,9 +15,11 @@
 //       fitted chain (domain map + affine z-fit + closed-form gradient) the walkers
 //       and normals actually consume — not just the raw per-surface partials.
 //
-//    2. Classic fidelity: the classic field's elevation at a few points matches
-//       hardcoded reference values (the ported terrain.js `tt()`), locking the
-//       "byte-identical to the site" claim against accidental drift.
+//    2. Value lock: every surface's FITTED elevation at two fixed points matches
+//       values frozen here (computed out-of-band from the math spec + the affine fit,
+//       NOT by calling TerrainField). This anchors what check 1 can't — a coordinated
+//       retune that shifts elevation() and gradient() together — and, for .classic,
+//       locks fidelity to the ported terrain.js values.
 //
 //  Exits non-zero on any failure so CI fails loudly. Run: `swiftc ... && ./verify-math`.
 //
@@ -83,41 +85,38 @@ struct VerifyMath {
             }
         }
 
-        // --- 2. Classic fidelity: elevation matches the ported terrain.js values ---
-        // Reference values recomputed directly from the five-Gaussian tt() definition
-        // (a_k, c_k, sigma_k, U=1.7) — an independent lock on the classic surface.
-        let classic = TerrainField(function: .classic)
-        let refs: [(Double, Double, Double)] = [
-            (0.0, 0.0, referenceClassic(0.0, 0.0)),
-            (1.0, -0.5, referenceClassic(1.0, -0.5)),
-            (-1.4, -0.5, referenceClassic(-1.4, -0.5)),   // a bump center
-            (2.0, 2.0, referenceClassic(2.0, 2.0)),
-            (-2.0, 1.3, referenceClassic(-2.0, 1.3)),
+        // --- 2. Value lock: FITTED elevation matches frozen reference values ---
+        // Check 1 only proves gradient == d/dx(elevation) for whatever the surface
+        // currently IS — a coordinated tuning change (e.g. ackleyK π/2 → π) shifts
+        // elevation() and gradient() together and would pass it. So pin each surface's
+        // fitted elevation at two fixed world points to values FROZEN here (computed
+        // once, out-of-band, from the math spec + the affine fit — not by calling
+        // TerrainField). Any change to a surface's shape, domain map, or fit constants
+        // moves these and fails the check. Regenerate deliberately if a surface is
+        // intentionally retuned. (For .classic these also lock fidelity to terrain.js.)
+        let p0 = (0.0, 0.0), p1 = (1.3, -0.8)
+        let refs: [(TerrainFunction, Double, Double)] = [
+            (.classic,     0.266305,  0.321117),
+            (.ackley,     -2.128260,  0.117248),
+            (.himmelblau,  0.417902, -0.131305),
+            (.rosenbrock, -0.398021, -1.309327),
+            (.rastrigin,  -1.784222,  0.566023),
+            (.rosette,    -0.280303, -0.375903),
+            (.ripples,     2.439202,  0.654336),
+            (.hexWaves,    1.031893, -1.095251),
         ]
-        for (x, y, want) in refs {
-            let got = classic.elevation(x, y)
-            let ok = abs(got - want) < 1e-9
-            print(String(format: "classic h(%.1f,%.1f) = %.6f  (ref %.6f)  %@",
-                         x, y, got, want, ok ? "OK" : "*** FAIL ***"))
-            if !ok { failures += 1 }
+        for (fn, want0, want1) in refs {
+            let field = TerrainField(function: fn)
+            for (pt, want) in [(p0, want0), (p1, want1)] {
+                let got = field.elevation(pt.0, pt.1)
+                let ok = abs(got - want) < 1e-5
+                print(String(format: "value %-16@ h(%.1f,%.1f) = %+.6f  (ref %+.6f)  %@",
+                             fn.label as NSString, pt.0, pt.1, got, want, ok ? "OK" : "*** FAIL ***"))
+                if !ok { failures += 1 }
+            }
         }
 
         if failures > 0 { die("\(failures) math check(s) failed") }
         print("all math checks passed")
-    }
-
-    /// Independent reference implementation of the classic five-Gaussian field
-    /// (terrain.js `tt()`), used only to lock TerrainField(.classic).elevation().
-    static func referenceClassic(_ x: Double, _ y: Double) -> Double {
-        let bumps: [(a: Double, cx: Double, cy: Double, s: Double)] = [
-            (-1.0, -1.4, -0.5, 0.9), (-0.65, 1.5, 0.7, 0.8), (-0.5, 0.3, -1.3, 0.7),
-            (0.7, -0.2, 0.9, 1.0), (0.45, 1.0, -0.6, 0.7),
-        ]
-        var t = 0.0
-        for b in bumps {
-            let dx = x - b.cx, dy = y - b.cy
-            t += b.a * exp(-(dx * dx + dy * dy) / (2 * b.s * b.s))
-        }
-        return t * 1.7
     }
 }

@@ -687,12 +687,16 @@ final class TerrainRenderer {
     /// wall clock, to freeze the terrain on the pre-morph surface until nowMs climbs
     /// past the stale morphStartMs. Cancelling here is what prevents that.)
     func setTerrainFunctionImmediately(_ fn: TerrainFunction) {
+        let wasMorphing = morphActive
         morphActive = false
         morphFrom = []
         morphTo = []
         guard fn != field.function else {
-            // Same target, but a morph may have been mid-flight: settle on it now.
-            grid = Self.buildGrid(field: field, projector: projector)
+            // Same target already active. Only rebuild if a morph was mid-flight (grid
+            // holds an interpolated shape) — settle it onto the target. With no morph,
+            // grid already IS the target, so skip the ~1.2M-op rebuild (this is the
+            // common first-build / (re)start path, where the ctor just built it).
+            if wasMorphing { grid = Self.buildGrid(field: field, projector: projector) }
             return
         }
         field = TerrainField(function: fn)
