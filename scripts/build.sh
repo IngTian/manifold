@@ -28,12 +28,11 @@ rm -rf "$SAVER"
 mkdir -p "$SAVER/Contents/MacOS" "$SAVER/Contents/Resources"
 
 echo "==> Compiling Swift sources -> loadable bundle dylib"
+# Shared engine (Sources/Shared) + saver-only shell (Sources/Saver). Globbed by
+# directory so adding a file to either never means editing this list.
 SOURCES=(
-	"$ROOT/Sources/Palette.swift"
-	"$ROOT/Sources/TerrainRenderer.swift"
-	"$ROOT/Sources/Settings.swift"
-	"$ROOT/Sources/ConfigSheet.swift"
-	"$ROOT/Sources/ManifoldView.swift"
+	"$ROOT"/Sources/Shared/*.swift
+	"$ROOT"/Sources/Saver/*.swift
 )
 
 # A .saver executable is a bundle/dylib (-bundle) that the ScreenSaver host loads.

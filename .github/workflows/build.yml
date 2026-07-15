@@ -54,7 +54,7 @@ jobs:
           SDK="$(xcrun --show-sdk-path)"
           swiftc -sdk "$SDK" -O -parse-as-library -module-name Render \
             -framework AppKit -framework ScreenSaver \
-            Sources/Palette.swift Sources/TerrainRenderer.swift \
+            Sources/Shared/*.swift \
             Sources/WallpaperApp/WallpaperSettings.swift tools/render.swift \
             -o build/render
           mkdir -p build/frames
@@ -65,6 +65,19 @@ jobs:
           # a non-Classic terrain function so a regression in the preset / zoom /
           # lighting / surface wiring fails the build too.
           PALETTE=1 FUNCTION=1 THEME=dark ./build/render wallpaper build/frames 800 500
+
+      - name: Verify terrain math (gradients + classic fidelity)
+        run: |
+          set -euo pipefail
+          SDK="$(xcrun --show-sdk-path)"
+          # Asserts every surface's analytic gradient matches a finite-difference of
+          # its fitted elevation, and that the classic field matches the ported
+          # terrain.js reference values. A silent math regression (wrong-sign gradient,
+          # dropped chain-rule factor) fails here even though it renders plausibly.
+          swiftc -sdk "$SDK" -O -parse-as-library -module-name VerifyMath \
+            Sources/Shared/*.swift tools/verify-math.swift \
+            -o build/verify-math
+          ./build/verify-math
 
       - name: Upload build artifacts
         if: always()

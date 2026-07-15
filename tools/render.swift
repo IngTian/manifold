@@ -22,8 +22,8 @@
 //  mode PALETTE=<int>, LIGHTING=0|1, ZOOM=<double>, FUNCTION=<int> override the
 //  persisted settings.
 //
-//  Compiled with `@main` + `-parse-as-library` alongside Palette.swift +
-//  TerrainRenderer.swift + WallpaperSettings.swift, under its OWN module name (not
+//  Compiled with `@main` + `-parse-as-library` alongside the shared engine
+//  (Sources/Shared/*.swift) + WallpaperSettings.swift, under its OWN module name (not
 //  "Manifold") so the compiled-in TerrainRenderer can't collide with the copy inside
 //  a dlopen'd .saver bundle.
 //

@@ -32,16 +32,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 echo "==> Compiling Swift sources -> executable"
 SOURCES=(
-	# Shared with the screensaver (the terrain look lives here):
-	"$ROOT/Sources/Palette.swift"
-	"$ROOT/Sources/TerrainRenderer.swift"
-	# Wallpaper app:
-	"$ROOT/Sources/WallpaperApp/WallpaperSettings.swift"
-	"$ROOT/Sources/WallpaperApp/WallpaperWindow.swift"
-	"$ROOT/Sources/WallpaperApp/TerrainWallpaperView.swift"
-	"$ROOT/Sources/WallpaperApp/PlaybackGovernor.swift"
-	"$ROOT/Sources/WallpaperApp/AppDelegate.swift"
-	"$ROOT/Sources/WallpaperApp/main.swift"
+	# Shared engine (the terrain look) + the wallpaper-only app shell. Globbed by
+	# directory so adding a file to either never means editing this list.
+	"$ROOT"/Sources/Shared/*.swift
+	"$ROOT"/Sources/WallpaperApp/*.swift
 )
 
 # swiftc can't -emit-executable for two -target triples at once, so compile each

@@ -31,51 +31,76 @@ enum WallpaperTheme: Int, CaseIterable {
 final class WallpaperSettings {
     private let defaults: UserDefaults
 
+    // Wallpaper-only keys. The shared render knobs (palette/surface/lighting/zoom/
+    // breath/walkers) live in TerrainConfig.Key — read/clamped through TerrainConfig
+    // so the saver and wallpaper can never diverge on keys, defaults, or clamps.
     private let kTheme = "theme"
-    private let kWalkers = "showWalkers"
     private let kPauseOnBattery = "pauseOnBattery"
     private let kShowFooter = "showFooter"
     private let kFooter = "footerMessage"
-    private let kZoomLevel = "zoomLevel"
-    private let kLighting = "lightingEnabled"
-    private let kPalettePreset = "palettePreset"
-    private let kBreathStrength = "breathStrength"
-    private let kTerrainFunction = "terrainFunction"
 
     /// Shipping default footer — placeholder text, personalized per install.
     static let defaultFooter = "Lorem Ipsum"
 
-    /// Camera pull-back (renderer `zoomOut`) default. The menu offers a few discrete
-    /// steps (a menu can't host a slider).
-    static let defaultZoom = 0.85
-
-    /// Breathing-motion strength multiplier default. The menu offers discrete steps.
-    static let defaultBreath = 1.0
-
     init(suiteName: String = "com.ingtian.manifold.wallpaper") {
         self.defaults = UserDefaults(suiteName: suiteName) ?? .standard
-        defaults.register(defaults: [
+        var d: [String: Any] = [
             kTheme: WallpaperTheme.auto.rawValue,
-            kWalkers: false,          // the breathing field stands on its own
             kPauseOnBattery: false,   // keep it alive on battery by default (15fps)
             kShowFooter: false,       // no signature line unless the user turns it on
             kFooter: WallpaperSettings.defaultFooter,
-            kZoomLevel: WallpaperSettings.defaultZoom,
-            kLighting: true,          // Eye-Dome Lighting on by default — the shape cue
-            kPalettePreset: PalettePreset.classic.rawValue,
-            kBreathStrength: WallpaperSettings.defaultBreath,
-            kTerrainFunction: TerrainFunction.classic.rawValue,
-        ])
+        ]
+        // Shared render knobs — one source of truth (see TerrainConfig).
+        d.merge(TerrainConfig.registrationDefaults) { current, _ in current }
+        defaults.register(defaults: d)
     }
+
+    // MARK: Shared render knobs (single source of truth in TerrainConfig)
+
+    /// The shared terrain render configuration, read/clamped through TerrainConfig
+    /// so the saver and wallpaper can never diverge on keys, defaults, or clamps.
+    var terrainConfig: TerrainConfig { TerrainConfig(reading: defaults) }
+
+    var showWalkers: Bool {
+        get { defaults.bool(forKey: TerrainConfig.Key.walkers) }
+        set { defaults.set(newValue, forKey: TerrainConfig.Key.walkers) }
+    }
+
+    /// Eye-Dome Lighting (the shape cue). Default on.
+    var lightingEnabled: Bool {
+        get { defaults.bool(forKey: TerrainConfig.Key.lighting) }
+        set { defaults.set(newValue, forKey: TerrainConfig.Key.lighting) }
+    }
+
+    /// Chosen color scheme. Falls back to Classic for any unknown stored value.
+    var palettePreset: PalettePreset {
+        get { PalettePreset(rawValue: defaults.integer(forKey: TerrainConfig.Key.palettePreset)) ?? .classic }
+        set { defaults.set(newValue.rawValue, forKey: TerrainConfig.Key.palettePreset) }
+    }
+
+    /// Chosen terrain height field. Falls back to Classic for any unknown value.
+    var terrainFunction: TerrainFunction {
+        get { TerrainFunction(rawValue: defaults.integer(forKey: TerrainConfig.Key.terrainFunction)) ?? .classic }
+        set { defaults.set(newValue.rawValue, forKey: TerrainConfig.Key.terrainFunction) }
+    }
+
+    /// Camera pull-back (renderer `zoomOut`). Clamped to TerrainConfig.zoomRange.
+    var zoomLevel: Double {
+        get { terrainConfig.zoomOut }
+        set { defaults.set(TerrainConfig.zoomRange.clamp(newValue), forKey: TerrainConfig.Key.zoom) }
+    }
+
+    /// Breathing-motion strength (renderer `breathStrength`). Clamped to TerrainConfig.breathRange.
+    var breathStrength: Double {
+        get { terrainConfig.breathStrength }
+        set { defaults.set(TerrainConfig.breathRange.clamp(newValue), forKey: TerrainConfig.Key.breath) }
+    }
+
+    // MARK: Wallpaper-only options
 
     var theme: WallpaperTheme {
         get { WallpaperTheme(rawValue: defaults.integer(forKey: kTheme)) ?? .auto }
         set { defaults.set(newValue.rawValue, forKey: kTheme) }
-    }
-
-    var showWalkers: Bool {
-        get { defaults.bool(forKey: kWalkers) }
-        set { defaults.set(newValue, forKey: kWalkers) }
     }
 
     var pauseOnBattery: Bool {
@@ -93,43 +118,5 @@ final class WallpaperSettings {
     var footerMessage: String {
         get { defaults.string(forKey: kFooter) ?? WallpaperSettings.defaultFooter }
         set { defaults.set(newValue, forKey: kFooter) }
-    }
-
-    /// Camera pull-back (renderer `zoomOut`). Clamped to the same 0.6…1.15 range the
-    /// saver uses so the two products behave identically.
-    var zoomLevel: Double {
-        get {
-            let v = defaults.object(forKey: kZoomLevel) as? Double ?? WallpaperSettings.defaultZoom
-            return min(1.15, max(0.6, v))
-        }
-        set { defaults.set(min(1.15, max(0.6, newValue)), forKey: kZoomLevel) }
-    }
-
-    /// Eye-Dome Lighting (the shape cue). Default on.
-    var lightingEnabled: Bool {
-        get { defaults.bool(forKey: kLighting) }
-        set { defaults.set(newValue, forKey: kLighting) }
-    }
-
-    /// Chosen color scheme. Falls back to Classic for any unknown stored value.
-    var palettePreset: PalettePreset {
-        get { PalettePreset(rawValue: defaults.integer(forKey: kPalettePreset)) ?? .classic }
-        set { defaults.set(newValue.rawValue, forKey: kPalettePreset) }
-    }
-
-    /// Chosen terrain height field. Falls back to Classic for any unknown value.
-    var terrainFunction: TerrainFunction {
-        get { TerrainFunction(rawValue: defaults.integer(forKey: kTerrainFunction)) ?? .classic }
-        set { defaults.set(newValue.rawValue, forKey: kTerrainFunction) }
-    }
-
-    /// Breathing-motion strength (renderer `breathStrength`). Clamped to the same
-    /// 0…2 range the saver uses so the two products behave identically.
-    var breathStrength: Double {
-        get {
-            let v = defaults.object(forKey: kBreathStrength) as? Double ?? WallpaperSettings.defaultBreath
-            return min(2.0, max(0.0, v))
-        }
-        set { defaults.set(min(2.0, max(0.0, newValue)), forKey: kBreathStrength) }
     }
 }
