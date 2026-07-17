@@ -462,6 +462,20 @@ final class TerrainRenderer {
     private var activePalette: Palette
     private var animateWalkers: Bool
 
+    // Cached sky. The sky is a full-window vertical gradient that is IDENTICAL frame
+    // to frame except during the brief (~650ms) theme cross-fade — yet re-rasterizing
+    // it every frame dominated CPU on large displays (≈23ms at 5120×1440, ~70% of the
+    // frame). So we rasterize it ONCE into a CGLayer and replay that each frame,
+    // regenerating only when the drawing size or the active sky stops change (a
+    // resize, or each frame of a fade). A CGLayer is bound to the destination
+    // context's exact format/resolution, so replaying it is BIT-IDENTICAL to drawing
+    // the gradient directly — unlike an offscreen CGImage, which re-dithers the
+    // gradient on blit and drifts ±1 LSB. Keyed on pixel size + the sky stops.
+    private var skyLayer: CGLayer?
+    private var skyLayerW = 0
+    private var skyLayerH = 0
+    private var skyLayerKey: [CGFloat] = []   // flattened active sky stops (loc,r,g,b …)
+
     // Theme cross-fade: when the target palette's identity changes, we ease from
     // the palette shown at the switch instant to the new one over `fadeDuration`.
     private var fadeFrom: Palette
@@ -959,18 +973,64 @@ final class TerrainRenderer {
 
     // MARK: Sky background
 
+    private static let deviceRGB = CGColorSpaceCreateDeviceRGB()
+
     private func drawSky(in ctx: CGContext, size: CGSize) {
-        let space = CGColorSpaceCreateDeviceRGB()
+        // The cache key is the drawing's device-pixel size + the active sky stops —
+        // i.e. it is DERIVED from exactly the state drawSky consumes, so it
+        // self-invalidates on a resize, a Retina-scale change, or any frame of a theme
+        // fade (which mutates activePalette.sky). No external invalidation hooks to
+        // keep in sync. `ctm.a`/`.d` are the x/y scale factors (these views only
+        // translate + flip-Y + scale, never rotate, so this is exact); .magnitude
+        // absorbs the Y-flip's negative sign.
+        let m = ctx.ctm
+        let wPx = max(1, Int((Double(size.width) * Double(m.a).magnitude).rounded()))
+        let hPx = max(1, Int((Double(size.height) * Double(m.d).magnitude).rounded()))
+
+        var key: [CGFloat] = []   // flattened active-sky stops (loc, r, g, b …)
+        key.reserveCapacity(activePalette.sky.count * 4)
+        for s in activePalette.sky { key.append(s.location); key.append(s.rgb.0); key.append(s.rgb.1); key.append(s.rgb.2) }
+
+        if skyLayer == nil || skyLayerW != wPx || skyLayerH != hPx || skyLayerKey != key {
+            skyLayer = Self.makeSkyLayer(activePalette.sky, in: ctx, size: size)
+            skyLayerW = wPx; skyLayerH = hPx; skyLayerKey = key
+        }
+        if let layer = skyLayer {
+            ctx.draw(layer, in: CGRect(origin: .zero, size: size))
+        } else {
+            // Layer creation failed (should never happen): fall back to drawing the
+            // gradient directly this frame, and retry the cache next frame.
+            Self.drawSkyGradient(activePalette.sky, in: ctx, size: size)
+        }
+    }
+
+    /// Rasterize the sky gradient once into a CGLayer. A CGLayer is created FROM the
+    /// destination context, so its backing store matches that context's pixel format
+    /// and resolution — replaying it with `ctx.draw(layer:)` is a straight composite,
+    /// bit-identical to drawing the gradient directly (an offscreen CGImage instead
+    /// re-dithers the gradient on blit and drifts ±1 LSB). It is the idiomatic Core
+    /// Graphics primitive for "rasterize expensive drawing once, replay each frame,"
+    /// and replaying into a later same-format context (both views recreate their
+    /// context per frame) is supported and exercised by the headless render tests.
+    private static func makeSkyLayer(_ stops: [GradientStop], in ctx: CGContext, size: CGSize) -> CGLayer? {
+        // CGLayer(_:size:) reads `ctx`'s CTM to size its backing store at device
+        // resolution, so `size` is passed in points (not pre-scaled pixels).
+        guard let layer = CGLayer(ctx, size: size, auxiliaryInfo: nil), let lctx = layer.context else { return nil }
+        drawSkyGradient(stops, in: lctx, size: size)
+        return layer
+    }
+
+    /// Draw the vertical sky gradient (stop 0 at the origin) into a context. Shared by
+    /// the cached-layer build and the direct-draw fallback so the two paths can never
+    /// diverge.
+    private static func drawSkyGradient(_ stops: [GradientStop], in ctx: CGContext, size: CGSize) {
         var colors: [CGColor] = []
         var locations: [CGFloat] = []
-        for stop in activePalette.sky {
-            colors.append(CGColor(colorSpace: space,
-                                  components: [stop.rgb.0, stop.rgb.1, stop.rgb.2, 1.0])!)
+        for stop in stops {
+            colors.append(CGColor(colorSpace: deviceRGB, components: [stop.rgb.0, stop.rgb.1, stop.rgb.2, 1.0])!)
             locations.append(stop.location)
         }
-        guard let gradient = CGGradient(colorsSpace: space, colors: colors as CFArray,
-                                        locations: locations) else { return }
-        // Y-down: stop 0 (top of gradient) is at y=0 (top of view).
+        guard let gradient = CGGradient(colorsSpace: deviceRGB, colors: colors as CFArray, locations: locations) else { return }
         ctx.saveGState()
         ctx.addRect(CGRect(origin: .zero, size: size))
         ctx.clip()
