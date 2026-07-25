@@ -65,6 +65,11 @@ final class ManifoldView: ScreenSaverView {
 
     override func stopAnimation() {
         super.stopAnimation()
+        // The screensaver host may keep this (stopped) view around — and even leak it
+        // across Space switches / sleep-wake. Drop the large sky-layer backing store
+        // so an idle or leaked instance doesn't pin tens of MB; it rebuilds lazily
+        // when drawing resumes.
+        renderer.releaseTransientResources()
     }
 
     override func animateOneFrame() {

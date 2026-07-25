@@ -126,6 +126,10 @@ final class TerrainWallpaperView: NSView {
         guard isRunning else { return }
         displayLink?.invalidate()
         displayLink = nil
+        // Paused (desktop covered / asleep / locked): drop the large sky-layer backing
+        // store so a hidden wallpaper doesn't sit on tens of MB per display. It rebuilds
+        // lazily on the next draw after resume.
+        renderer.releaseTransientResources()
     }
 
     private func applyFrameRate() { if let l = displayLink { applyFrameRate(to: l) } }

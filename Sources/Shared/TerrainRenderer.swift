@@ -825,6 +825,22 @@ final class TerrainRenderer {
 
     func setAnimateWalkers(_ on: Bool) { self.animateWalkers = on }
 
+    /// Drop caches that only the actively-drawing view needs, so a stopped view holds
+    /// no large transient buffers. Currently the sky `CGLayer` — a full-window backing
+    /// store (tens of MB at large/Retina resolutions). It rebuilds lazily on the next
+    /// `render`, so this is safe to call whenever drawing pauses.
+    ///
+    /// This matters because macOS's out-of-process screensaver host
+    /// (`legacyScreenSaver`) is known to re-instantiate the saver view repeatedly
+    /// (Space switches, display sleep/wake) and over-retain the old instances instead
+    /// of releasing them. Each retained-but-stopped renderer would otherwise pin its
+    /// own multi-MB sky layer forever; releasing it here keeps a leaked idle instance
+    /// down to a few KB (its grid) instead. Call from the view's stop/pause path.
+    func releaseTransientResources() {
+        skyLayer = nil
+        skyLayerW = 0; skyLayerH = 0; skyLayerKey = []
+    }
+
     /// Push a whole `TerrainConfig` to the engine in one call — the single routing
     /// point that both products use, replacing the hand-copied "assign each knob"
     /// blocks that used to live (and drift) across every view's init / start /
