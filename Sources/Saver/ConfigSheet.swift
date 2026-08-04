@@ -18,6 +18,7 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
     private var dateButton: NSButton!
     private var walkersButton: NSButton!
     private var lightingButton: NSButton!
+    private var exitHostButton: NSButton!
     private var themePopup: NSPopUpButton!
     private var palettePopup: NSPopUpButton!
     private var surfacePopup: NSPopUpButton!
@@ -37,7 +38,7 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
 
     private func buildWindow() {
         let width: CGFloat = 420
-        let height: CGFloat = 620
+        let height: CGFloat = 650
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: [.titled],
@@ -92,6 +93,18 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
         lightingButton.toolTip = "Shades the dots by depth so the terrain reads as 3D."
         lightingButton.frame = NSRect(x: 24, y: y, width: width - 48, height: 20)
         content.addSubview(lightingButton)
+        y -= 30
+
+        exitHostButton = makeCheckbox("Quit the screen saver host when dismissed",
+                                      action: #selector(toggleExitHost))
+        exitHostButton.state = settings.exitHostOnStop ? .on : .off
+        exitHostButton.toolTip = """
+            Recommended. Works around a macOS bug where the system's screen-saver \
+            host keeps rendering after you dismiss the screen saver, burning CPU \
+            indefinitely. Turn off only if the screen saver misbehaves on start-up.
+            """
+        exitHostButton.frame = NSRect(x: 24, y: y, width: width - 48, height: 20)
+        content.addSubview(exitHostButton)
         y -= 40
 
         let themeLabel = makeLabel("Theme", size: 12, weight: .regular)
@@ -220,6 +233,10 @@ final class ConfigSheetController: NSObject, NSTextFieldDelegate {
     @objc private func toggleSeconds() { settings.showSeconds = (secondsButton.state == .on) }
     @objc private func toggleDate() { settings.showDate = (dateButton.state == .on) }
     @objc private func toggleWalkers() { settings.showWalkers = (walkersButton.state == .on) }
+    @objc private func toggleExitHost() {
+        settings.exitHostOnStop = (exitHostButton.state == .on)
+        settings.synchronize()
+    }
     @objc private func toggleLighting() {
         settings.lightingEnabled = (lightingButton.state == .on)
         live()

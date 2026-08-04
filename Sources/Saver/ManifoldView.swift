@@ -30,6 +30,27 @@ final class ManifoldView: ScreenSaverView {
     private let ampmFormatter = DateFormatter()
     private let dateFormatter = DateFormatter()
 
+    // MARK: Host-leak defenses
+    //
+    // The screen-saver host creates a fresh ManifoldView on every activation and
+    // never releases the previous ones, then keeps their animation timers ticking
+    // (it does not reliably send stopAnimation). Two independent defenses:
+    //
+    //  1. Lame-duck neutering — a new instance tells older ones to stand down, so
+    //     only the newest view ever draws even if several stay retained.
+    //  2. HostExitGuard — on "the screen saver is stopping", exit the host, which
+    //     is the only reliable way to end the burn (see HostExitGuard for why no
+    //     window property can detect the abandoned state).
+
+    /// Local (in-process) broadcast: "a newer instance exists, stand down."
+    private static let newInstanceNote = Notification.Name("com.ingtian.manifold.NewInstance")
+
+    /// Set on instances superseded by a newer one; they never draw again.
+    private var lameDuck = false
+    /// Guards against the host's duplicate startAnimation() calls.
+    private var isAnimationStarted = false
+    private lazy var exitGuard = HostExitGuard { [weak self] in self?.tearDownForExit() }
+
     // MARK: Init
 
     override init?(frame: NSRect, isPreview: Bool) {
@@ -46,6 +67,32 @@ final class ManifoldView: ScreenSaverView {
         configureFormatters()
         // Push the whole shared config in one immediate (no-fade) apply on first build.
         renderer.apply(settings.terrainConfig, palette: currentPalette(), animated: false)
+
+        // Retire any older instances the host is still holding, then announce
+        // ourselves as the live one.
+        NotificationCenter.default.addObserver(self, selector: #selector(neuter(_:)),
+                                              name: Self.newInstanceNote, object: nil)
+        NotificationCenter.default.post(name: Self.newInstanceNote, object: self)
+        if settings.exitHostOnStop { exitGuard.armIfRealRun(viewSize: frame.size) }
+    }
+
+    deinit {
+        exitGuard.disarm()
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    /// A newer ManifoldView exists: stop drawing forever and let go of everything
+    /// we can. Only the newest instance is allowed to terminate the host.
+    @objc private func neuter(_ note: Notification) {
+        guard note.object as? ManifoldView !== self else { return }   // ignore our own post
+        guard !lameDuck else { return }
+        lameDuck = true
+        isAnimationStarted = false
+        super.stopAnimation()
+        renderer.releaseTransientResources()
+        removeFromSuperview()
+        NotificationCenter.default.removeObserver(self)
+        exitGuard.disarm()
     }
 
     @available(*, unavailable)
@@ -56,23 +103,44 @@ final class ManifoldView: ScreenSaverView {
     // MARK: Lifecycle
 
     override func startAnimation() {
+        guard !lameDuck else { return }             // superseded: never animate again
+        // The host delivers DUPLICATE startAnimation() calls to the live instance.
+        // Without this guard we'd re-arm the framework timer and reset startTime
+        // twice, which visibly restarts the breathing/clock timeline.
+        guard !isAnimationStarted else { return }
+        isAnimationStarted = true
         startTime = Date()
         // Snap (no fade/morph) when (re)starting — one apply for every shared knob.
         renderer.apply(settings.terrainConfig, palette: currentPalette(), animated: false)
         configureFormatters()
         super.startAnimation()
+        // bounds is authoritative by now (frame may have been 0×0 at init time).
+        if settings.exitHostOnStop { exitGuard.armIfRealRun(viewSize: bounds.size) }
     }
 
     override func stopAnimation() {
+        guard isAnimationStarted else { return }    // ignore spurious/duplicate stops
+        isAnimationStarted = false
         super.stopAnimation()
-        // The screensaver host may keep this (stopped) view around — and even leak it
-        // across Space switches / sleep-wake. Drop the large sky-layer backing store
-        // so an idle or leaked instance doesn't pin tens of MB; it rebuilds lazily
-        // when drawing resumes.
+        // Drop the cached sky so a retained idle instance holds less; it rebuilds
+        // lazily when drawing resumes. (In a layer-backed/display-list context the
+        // cached CGLayer records ops rather than pixels, so this reclaims little
+        // there; in a raster context it is the full backing store.)
+        renderer.releaseTransientResources()
+    }
+
+    /// Shed everything we can right before the host exits, so CPU drops even if the
+    /// exit is delayed or prevented.
+    private func tearDownForExit() {
+        if isAnimationStarted {
+            isAnimationStarted = false
+            super.stopAnimation()
+        }
         renderer.releaseTransientResources()
     }
 
     override func animateOneFrame() {
+        guard !lameDuck else { return }             // superseded instance: do nothing
         setNeedsDisplay(bounds)
     }
 

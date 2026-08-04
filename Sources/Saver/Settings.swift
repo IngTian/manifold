@@ -55,6 +55,7 @@ final class Settings {
     private let kTheme = "themePreference"
     private let kFontDesign = "fontDesign"
     private let kFooter = "footerMessage"
+    private let kExitHostOnStop = "exitHostOnScreensaverStop"
 
     /// Shipping default motto — placeholder text, personalized per install.
     static let defaultFooter = "Lorem Ipsum"
@@ -72,6 +73,10 @@ final class Settings {
             kTheme: ThemePreference.auto.rawValue,
             kFontDesign: FontDesign.system.rawValue,
             kFooter: Settings.defaultFooter,
+            // On by default: without it, macOS's screen-saver host keeps rendering
+            // after dismissal and burns ~50% CPU indefinitely (measured 159 CPU-hours
+            // over 9 days). See HostExitGuard.
+            kExitHostOnStop: true,
         ]
         // Shared render knobs — one source of truth (see TerrainConfig).
         d.merge(TerrainConfig.registrationDefaults) { current, _ in current }
@@ -151,6 +156,15 @@ final class Settings {
     var footerMessage: String {
         get { defaults.string(forKey: kFooter) ?? Settings.defaultFooter }
         set { defaults.set(newValue, forKey: kFooter) }
+    }
+
+    /// Quit macOS's screen-saver host process when the screen saver is dismissed.
+    /// Default ON: the host otherwise keeps our view animating forever and burns
+    /// ~50% CPU (an Apple defect — see HostExitGuard). Off is the escape hatch if
+    /// exiting ever misbehaves on a future macOS.
+    var exitHostOnStop: Bool {
+        get { defaults.object(forKey: kExitHostOnStop) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: kExitHostOnStop) }
     }
 
     func synchronize() {
