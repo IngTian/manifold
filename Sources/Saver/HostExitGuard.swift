@@ -48,8 +48,15 @@ final class HostExitGuard {
     /// shipping savers converged on.
     private static let exitDelay: TimeInterval = 2.0
 
-    /// The smallest view we treat as a real full-screen run. The System Settings
-    /// thumbnail is ~296×184, and recent macOS also spawns 0×0 "ghost" instances.
+    /// Below this we don't bother arming: recent macOS spawns 0×0 "ghost" view
+    /// instances, and the small System Settings thumbnail (~296×184) isn't worth the
+    /// churn. NOTE this is a cheap sanity filter, NOT a reliable "preview vs. real"
+    /// test — a preview pane on a big display easily exceeds it. That's acceptable
+    /// because the TRIGGER is session-scoped: the screensaver-stopping notifications
+    /// are posted when a screen-saver *session* ends, not when a Settings pane
+    /// closes, so arming in a preview normally never fires. Worst case (a real
+    /// session ends while Settings happens to be open) the thumbnail blanks until
+    /// the pane respawns the host — cosmetic and self-healing.
     private static let minRealRunSize = CGSize(width: 400, height: 300)
 
     /// Called before exiting so we stop our own work even if the exit is
@@ -69,7 +76,8 @@ final class HostExitGuard {
         // Deliberately NOT `isPreview`: it is unreliable in BOTH directions across
         // macOS versions (reported always-true on some, inverted on others), and
         // trusting it would silently disable this fix on the versions that need it.
-        // View size is the robust discriminator — the Settings thumbnail is tiny.
+        // The size check is only a sanity filter (see minRealRunSize) — safety comes
+        // from the trigger being session-scoped, plus the killableHosts check above.
         guard viewSize.width >= Self.minRealRunSize.width,
               viewSize.height >= Self.minRealRunSize.height else { return }
         armed = true
