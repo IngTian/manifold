@@ -65,15 +65,65 @@ final class ManifoldView: ScreenSaverView {
 
     override func stopAnimation() {
         super.stopAnimation()
-        // The screensaver host may keep this (stopped) view around — and even leak it
-        // across Space switches / sleep-wake. Drop the large sky-layer backing store
-        // so an idle or leaked instance doesn't pin tens of MB; it rebuilds lazily
-        // when drawing resumes.
+        // The host may keep this (stopped) view around — and even leak it across Space
+        // switches / sleep-wake. Drop the cached sky so a retained idle instance holds
+        // less; it rebuilds lazily when drawing resumes. (How much this reclaims depends
+        // on the context: for a layer-backed view AppKit hands us a DISPLAY-LIST context,
+        // whose CGLayer records drawing ops rather than pixels, so the saving there is
+        // small; in a raster context — e.g. the headless harness — it is the full
+        // backing store.)
         renderer.releaseTransientResources()
     }
 
+    // MARK: Presentation gating
+
+    /// True once we've shed transient resources for the current parked spell, so we
+    /// only shed on the transition into "parked" rather than every tick.
+    private var shedWhileParked = false
+
     override func animateOneFrame() {
+        // The host over-retains view instances and — critically — does not always call
+        // stopAnimation() on the ones it abandons, so ScreenSaverView's own animation
+        // timer keeps firing forever. Apple's `_oneStep:` gates only on `window != nil`,
+        // so an abandoned-but-installed view keeps recording a full 1089-dot + sky frame
+        // every 33 ms into a window nothing composites. At 5120×1440 one such view costs
+        // 20–30 ms/frame — by itself the ~50% CPU that shows up as a "runaway"
+        // legacyScreenSaver process hours or days later.
+        //
+        // Skipping the dirtying is sufficient and safe: a view that is never marked
+        // dirty is never asked to draw, while draw(_:) still serves host-initiated
+        // redraws (resize, appearance change, re-composite), so nothing goes stale.
+        // We deliberately do NOT call stopAnimation() — leaving the timer running is
+        // what lets a parked view resume by itself on its next tick, with no re-arm
+        // plumbing to get wrong.
+        guard shouldDrawThisFrame() else {
+            if !shedWhileParked {
+                shedWhileParked = true
+                renderer.releaseTransientResources()
+            }
+            return
+        }
+        shedWhileParked = false
         setNeedsDisplay(bounds)
+    }
+
+    /// Whether this view can currently be seen, and so is worth drawing.
+    ///
+    /// Fail-OPEN by design: we animate unless AppKit affirmatively tells us we cannot
+    /// be presented. Any unmodelled host configuration errs toward drawing, so the
+    /// worst case is today's behavior (some wasted CPU) and never a frozen screensaver.
+    private func shouldDrawThisFrame() -> Bool {
+        // The System Settings thumbnail is tiny and never the CPU problem — exempt it
+        // outright as insurance against freezing the case users notice first.
+        if isPreview { return true }
+        // No window: cannot be presented (and AppKit doesn't call draw(_:) on us anyway).
+        guard let window else { return false }
+        // Ordered out / off every display. Deliberately NOT window.occlusionState: that
+        // reports .visible == false for a genuinely frontmost window at
+        // CGShieldingWindowLevel — which is exactly where the real fullscreen saver
+        // lives — so gating on occlusion would permanently freeze it. (The same
+        // occlusionState unreliability is documented in WallpaperApp/PlaybackGovernor.)
+        return window.isVisible
     }
 
     // MARK: Drawing
